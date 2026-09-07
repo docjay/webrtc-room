@@ -18,6 +18,9 @@ blocker justified escalation.
   metadata. The platform has a logical `DB` binding declaration, production
   environment flag, and a secret, verified owner-only `OWNER_ID`; no identity
   value is stored in this repository.
+- Saved a non-deployed Sites version from the packaged integration commit. Its
+  archive was inspected and includes the Worker, client assets, binding
+  metadata, and ordered `0001`/`0002` migrations.
 
 - Replaced same-page RTC smoke with authenticated host/guest HTTP signaling, canonical host-issued attempt generations, sanitized two-device capability manifest, identical acknowledgements, generation/probe-isolated SDP/candidate exchange, and real paired ordered data channels.
 - Matrix ranks mixed profiles by their weakest hop (direct UDP/STUN, TURN UDP, TURN TLS, TURN TCP, ICE-TCP), waits for better/equal terminal rows for deterministic selection, and retains at most one eligible passed channel per tier before closing losers.
@@ -40,6 +43,17 @@ blocker justified escalation.
   Sites packager accepted the artifact with both migration files, the Worker,
   client assets, and `DB` binding metadata. Browser rerun and hosted validation
   remain pending platform registration.
+- **2026-09-07 platform pre-deploy:** Sites accepted the source-backed,
+  non-deployed version. The database overview intentionally exposes no binding
+  before a deployment, so hosted D1 migration application and persistence
+  cannot be truthfully verified without the still-required deployment
+  authorization.
+- **2026-09-07 browser rerun:** the real local Playwright smoke suite did not
+  pass in this network state. Direct rows reached their 30-second data-channel
+  deadlines and STUN rows were correctly inconclusive; no verified main channel
+  was available for chat/performance assertions. Static/unit/integration and
+  local migration checks still passed. This is not evidence of hosted or
+  external-network connectivity.
 
 - `npm run check` — passed: formatting, TypeScript, ESLint, 23 Vitest unit/integration tests, client and Worker builds.
 - `npm run reset:local && npm run migrate:local` (twice) — passed; reset followed by ordered, idempotent migration application to `.local-data/webrtc-room.sqlite`.
@@ -51,4 +65,7 @@ blocker justified escalation.
 
 - No supplied TURN credentials or external second network: STUN/TURN relay, NAT traversal, and TLS/TCP relay outcomes remain explicitly unverified/inconclusive.
 - Standard browser WebRTC cannot force ICE-TCP or a chosen candidate pair; those rows are terminal unsupported/inconclusive rather than advertised as passes.
-- Hosted Sites identity/owner configuration and actual Cloudflare D1 binding require Codex platform setup; production authorization remains fail-closed until configured.
+- Hosted owner configuration is complete, but the actual Sites D1 binding,
+  migration application, and hosted authorization checks require the pending
+  deployment; production remains fail-closed until the Sites dispatcher serves
+  a request.

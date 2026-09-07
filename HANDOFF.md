@@ -102,12 +102,23 @@ Evidence boundaries:
 - Local tabs do **not** prove NAT traversal, relay reachability, or any
   different-network behavior.
 
+On 2026-09-07, the browser suite was rerun after the Sites integration. It
+could not establish a verified local main channel in the then-current network
+state: direct profiles reached their data-channel deadlines and STUN profiles
+were correctly recorded as inconclusive. The suite therefore timed out at its
+chat assertion. This is negative local environment evidence, not a change to
+the prior successful 2026-09-06 local run and not hosted/TURN proof.
+
 ## Outstanding work
 
 ### Platform-only
 
-Provision the logical Sites `DB` binding, configure the verified stable owner
-identity, and perform hosted validation/deployment only after authorization.
+The private Sites project, logical `DB` declaration, production environment,
+and secret verified owner identity are configured. A non-deployed package
+version containing the Worker, client assets, and ordered existing migrations
+has been saved. Sites does not expose the D1 binding in its database overview
+until deployment, so migration application and hosted persistence remain
+pending explicit deployment authorization.
 
 ### Credentials/network-dependent
 
