@@ -253,7 +253,11 @@ export function DiagnosticsDrawer({ open, model, callbacks, openerRef }: Diagnos
                 placeholder={`{
   "iceServers": [
     {
-      "urls": "turn:relay.example.com:3478?transport=udp",
+      "urls": [
+        "turn:relay.example.com:3478?transport=udp",
+        "turn:relay.example.com:3478?transport=tcp",
+        "turns:relay.example.com:443?transport=tcp"
+      ],
       "username": "your-username",
       "credential": "your-password"
     }
