@@ -37,6 +37,11 @@ blocker justified escalation.
 
 ## Verification — 2026-09-06, Chromium headless on macOS
 
+- **2026-09-07 first hosted publish:** rejected before going live because the
+  Worker archive left the `zod` schema runtime external. The Worker Vite build
+  now bundles that runtime; the complete check suite passed after the fix. A
+  replacement version is pending publication.
+
 - **2026-09-07 Sites integration preflight:** `npm run check` passed (format,
   strict TypeScript, ESLint, 23 unit/integration tests, and Worker/client
   build); `npm run reset:local && npm run migrate:local` passed; the current
