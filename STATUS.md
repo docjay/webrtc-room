@@ -37,6 +37,16 @@ blocker justified escalation.
 
 ## Verification — 2026-09-06, Chromium headless on macOS
 
+- **2026-09-07 hosted publish:** public deployment succeeded after bundling the
+  Worker schema runtime. Hosted health returned 200, room creation returned
+  201, and the Sites D1 overview verified `DB` plus all nine expected tables.
+  Signed-out and forged-client-header admin list/export calls returned 403.
+  The platform access-policy account identifier did not match the opaque
+  site-specific dispatcher identity, so the attempted owner request also
+  returned 403. This is fail-closed and leaves no diagnostic data public, but
+  requires a real authenticated owner-browser identity verification before
+  owner administration can be claimed working.
+
 - **2026-09-07 first hosted publish:** rejected before going live because the
   Worker archive left the `zod` schema runtime external. The Worker Vite build
   now bundles that runtime; the complete check suite passed after the fix. A
