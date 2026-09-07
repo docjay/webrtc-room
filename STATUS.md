@@ -1,6 +1,10 @@
-# Status — reviewed-defect repair
+# Status — local build complete
 
-**Repair pass:** gpt-5.6-terra, medium. No delegation or escalation.
+**Orchestration:** gpt-5.6-sol, medium. Terra medium implemented the bounded
+foundation, application, protocol, and reviewed-defect slices. Luna medium ran
+the narrow final validation and prepared the handoff. Sol medium performed the
+focused read-only integration review. Astra was not used because no unresolved
+blocker justified escalation.
 
 ## Completed
 
@@ -23,6 +27,7 @@
 - `npm run reset:local && npm run migrate:local` (twice) — passed; reset followed by ordered, idempotent migration application to `.local-data/webrtc-room.sqlite`.
 - Restart durability — local Worker health check passed after build/restart; local SQLite/D1 adapter remains persistent across fresh adapter instances.
 - `npm run test:browser` — passed: Playwright Chromium, three tests. Two isolated contexts completed preflight/create/join, shared `att_` ID, Worker-routed paired RTC data channel, bidirectional chat, all matrix rows terminal, visible receiver-measured A→B/B→A metrics, and a valid config rerun produced a different attempt ID and re-established the main path.
+- Final source commit: `3e25063c977e3ba6b517c74e4141a8d7c8626e9c`.
 
 ## Remaining unavoidable limitations
 
