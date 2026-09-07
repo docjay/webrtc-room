@@ -181,7 +181,7 @@ export function createWorker(deps: Dependencies = {}) {
             !room.success ||
             access.room_code !== room.data ||
             !input.success ||
-            access.slot !== 1
+            (attempt && access.slot !== 1)
           )
             return json({ error: 'forbidden' }, 403);
           if ((attempt && input.data.previousAttemptId) || (retry && !input.data.previousAttemptId))

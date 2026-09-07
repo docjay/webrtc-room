@@ -140,7 +140,7 @@ describe('worker room integration', () => {
     expect((await request(signalUrl, { method: 'GET', headers: auth(host) })).status).toBe(200);
     const retried = await request(`/api/rooms/${host.roomCode}/retry`, {
       method: 'POST',
-      headers: auth(host),
+      headers: auth(guest),
       body: JSON.stringify({ previousAttemptId: attempt.id }),
     });
     expect(retried.status).toBe(201);

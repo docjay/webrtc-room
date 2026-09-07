@@ -37,19 +37,29 @@ export class ReportBuffer {
   snapshot() {
     return {
       runId: this.runId,
-      events: this.events,
+      events: [...this.events],
       dropped: this.dropped,
       generatedAt: new Date().toISOString(),
     };
   }
-  text() {
-    return this.events
-      .map((e) => `${e.clientTime} ${e.type}/${e.outcome}: ${e.payload.message ?? ''}`)
-      .join('\n');
+  completeSnapshot(details: Record<string, unknown> = {}) {
+    return redact({ ...this.snapshot(), ...details });
   }
 }
+
+export function formatReportText(report: unknown) {
+  return JSON.stringify(redact(report), null, 2);
+}
+
+export async function copyReport(
+  report: unknown,
+  clipboard: Pick<Clipboard, 'writeText'> = navigator.clipboard,
+) {
+  await clipboard.writeText(formatReportText(report));
+}
+
 export function downloadReport(report: unknown) {
-  const blob = new Blob([JSON.stringify(redact(report), null, 2)], { type: 'application/json' });
+  const blob = new Blob([formatReportText(report)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;

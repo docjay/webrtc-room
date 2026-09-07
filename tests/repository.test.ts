@@ -147,8 +147,13 @@ describe('D1 repository (SQLite-compatible sql.js test adapter)', () => {
       ),
     );
     expect(new Set(issued.map((value) => value.id)).size).toBe(1);
-    const retry = await repo.issueAttempt('ABC234', '[{"id":"profile-direct"}]', issued[0]!.id);
-    expect(retry.generation).toBe(2);
-    expect((await repo.attempt(retry.id))?.previous_id).toBe(issued[0]!.id);
+    const retries = await Promise.all(
+      Array.from({ length: 2 }, () =>
+        repo.issueAttempt('ABC234', '[{"id":"profile-direct"}]', issued[0]!.id),
+      ),
+    );
+    expect(new Set(retries.map((value) => value.id)).size).toBe(1);
+    expect(retries[0]!.generation).toBe(2);
+    expect((await repo.attempt(retries[0]!.id))?.previous_id).toBe(issued[0]!.id);
   });
 });

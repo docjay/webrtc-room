@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   iceConfigSchema,
@@ -9,8 +9,12 @@ import {
   type Profile,
 } from '../shared/domain.js';
 import { ApiClient, type Credentials, type IssuedAttempt } from './api.js';
-import { ReportBuffer, downloadReport } from './report.js';
-import { probeIce, runPairedProbe, type ProbeResult } from './webrtc.js';
+import { ReportBuffer, copyReport, downloadReport } from './report.js';
+import { DeviceCheckController, type DeviceCheckSnapshot } from './device-checks.js';
+import { DiagnosticsDrawer } from './components/DiagnosticsDrawer.js';
+import { RoomSurface } from './components/RoomSurface.js';
+import type { DiagnosticsViewModel, RoomSurfaceModel } from './components/types.js';
+import { runPairedProbe } from './webrtc.js';
 import { CoordinatedPerformance, summarizeRtt, type DirectionResult } from './performance.js';
 import './styles.css';
 
@@ -152,89 +156,107 @@ function Admin() {
 }
 function App() {
   const report = useMemo(() => new ReportBuffer(), []);
-  const [iceText, setIceText] = useState(''),
-    [preflight, setPreflight] = useState<ProbeResult[]>([]);
-  const [preflightState, setPreflightState] = useState<
-    'required' | 'running' | 'complete' | 'invalid'
-  >('required');
-  const [credentials, setCredentials] = useState<Credentials | null>(null),
-    [roomCode, setRoomCode] = useState(new URLSearchParams(location.search).get('room') ?? '');
-  const [status, setStatus] = useState('Checking signaling…'),
-    [main, setMain] = useState('Not ready'),
-    [attempt, setAttempt] = useState<IssuedAttempt | null>(null);
-  const [matrix, setMatrix] = useState<MatrixRow[]>([]),
-    [messages, setMessages] = useState<string[]>([]),
-    [draft, setDraft] = useState('');
-  const [performance, setPerformance] = useState('Awaiting diagnostics completion'),
-    [performanceDirections, setPerformanceDirections] = useState<DirectionResult[]>([]);
-  const [error, setError] = useState(''),
-    [compact, setCompact] = useState(false),
-    [uploadStatus, setUploadStatus] = useState<'pending' | 'saved' | 'upload-failed' | 'truncated'>(
-      'pending',
-    );
-  const mainChannel = useRef<RTCDataChannel | null>(null),
-    cleanups = useRef<Array<() => void>>([]),
-    started = useRef(false),
-    cancelled = useRef(false),
-    activePerformance = useRef<CoordinatedPerformance | null>(null),
-    pendingEvents = useRef<DiagnosticEvent[]>([]),
-    uploadRunning = useRef(false),
-    uploadTimer = useRef<number | undefined>(undefined),
-    uploadAttempts = useRef(0),
-    suiteGeneration = useRef(0),
-    retryPreviousAttempt = useRef<string | null>(null);
-  const config = useMemo<IceConfig | null>(() => {
-    try {
-      const custom = iceText.trim()
-        ? iceConfigSchema.parse(JSON.parse(iceText) as unknown)
-        : { iceServers: [] };
-      return iceConfigSchema.parse({
-        iceServers: [...defaults.map((urls) => ({ urls })), ...custom.iceServers],
-      });
-    } catch {
-      return null;
-    }
-  }, [iceText]);
-  const ready = preflightState === 'complete' && Boolean(config);
-  useEffect(() => {
-    void fetch('/api/health')
-      .then((r) => setStatus(r.ok ? 'Signaling available' : 'Signaling unavailable'))
-      .catch(() => setStatus('Signaling unavailable'));
-  }, []);
-  useEffect(
-    () => () => {
-      cancelled.current = true;
-      cleanups.current.forEach((close) => close());
-      if (credentials && pendingEvents.current.length)
-        void api
-          .uploadEvents(credentials, report.runId, pendingEvents.current.slice(0, 100))
-          .catch(() => setUploadStatus('upload-failed'));
-    },
-    // This is unmount-only cleanup; credential updates must not close active RTC.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+  const [draftIceText, setDraftIceText] = useState('');
+  const [appliedIceText, setAppliedIceText] = useState('');
+  const [configurationVersion, setConfigurationVersion] = useState(0);
+  const [roomCode, setRoomCode] = useState(
+    () => new URLSearchParams(location.search).get('room') ?? '',
   );
-  const record = (
-    message: string,
-    outcome: 'start' | 'end' | 'success' | 'failure' | 'timeout' | 'cancelled' | 'info' = 'info',
-  ) => {
-    const event = report.record('summary', outcome, message, 0, attempt?.id);
-    if (!event) {
-      setUploadStatus('truncated');
-      return;
+  const invitation = Boolean(new URLSearchParams(location.search).get('room'));
+  const [credentials, setCredentials] = useState<Credentials | null>(null);
+  const [attempt, setAttempt] = useState<IssuedAttempt | null>(null);
+  const [matrix, setMatrix] = useState<MatrixRow[]>([]);
+  const [messages, setMessages] = useState<Array<{ id: string; author: string; text: string }>>([]);
+  const [draft, setDraft] = useState('');
+  const [main, setMain] = useState('Checking this device');
+  const [error, setError] = useState('');
+  const [intent, setIntent] = useState<'create' | 'join' | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [fieldError, setFieldError] = useState('');
+  const [invitationFeedback, setInvitationFeedback] = useState('');
+  const [automaticBandwidthEnabled, setAutomaticBandwidthEnabled] = useState(true);
+  const [performance, setPerformance] = useState('Not started');
+  const [performanceDirections, setPerformanceDirections] = useState<DirectionResult[]>([]);
+  const [uploadStatus, setUploadStatus] = useState<
+    'pending' | 'saved' | 'upload-failed' | 'truncated'
+  >('pending');
+  const appliedConfig = useMemo<IceConfig>(() => {
+    const custom = appliedIceText.trim()
+      ? iceConfigSchema.parse(JSON.parse(appliedIceText) as unknown)
+      : { iceServers: [] };
+    return iceConfigSchema.parse({
+      iceServers: [...defaults.map((urls) => ({ urls })), ...custom.iceServers],
+    });
+  }, [appliedIceText]);
+  const draftPreview = useMemo(() => {
+    try {
+      const custom = draftIceText.trim()
+        ? iceConfigSchema.parse(JSON.parse(draftIceText) as unknown)
+        : { iceServers: [] };
+      return (
+        sanitizeIceConfig({
+          iceServers: [...defaults.map((urls) => ({ urls })), ...custom.iceServers],
+        })
+          .map((server) => `${server.kind} (${server.transports.join(', ')})`)
+          .join(', ') || 'Default checks only'
+      );
+    } catch {
+      return 'Fix the JSON before applying';
     }
-    pendingEvents.current.push(event);
-    setUploadStatus('pending');
-    scheduleUpload();
-  };
-  const scheduleUpload = () => {
+  }, [draftIceText]);
+  const checkController = useRef<DeviceCheckController | null>(null);
+  if (!checkController.current) {
+    checkController.current = new DeviceCheckController({
+      checkSignaling: async ({ signal }) => {
+        const response = await fetch('/api/health', { signal });
+        if (!response.ok) throw new Error('signaling unavailable');
+      },
+    });
+  }
+  const [deviceChecks, setDeviceChecks] = useState<DeviceCheckSnapshot>(
+    () => checkController.current!.current,
+  );
+  const mainChannel = useRef<RTCDataChannel | null>(null);
+  const credentialsRef = useRef<Credentials | null>(null);
+  const reportRef = useRef(report);
+  credentialsRef.current = credentials;
+  const cleanups = useRef<Array<() => void>>([]);
+  const started = useRef(false);
+  const coordinating = useRef(false);
+  const cancelled = useRef(false);
+  const activePerformance = useRef<CoordinatedPerformance | null>(null);
+  const pendingEvents = useRef<DiagnosticEvent[]>([]);
+  const uploadRunning = useRef(false);
+  const uploadTimer = useRef<number | undefined>(undefined);
+  const uploadAttempts = useRef(0);
+  const suiteGeneration = useRef(0);
+  const retryPreviousAttempt = useRef<string | null>(null);
+  const checksVersion = String(configurationVersion);
+
+  const scheduleUpload = useCallback(() => {
     if (!credentials || uploadTimer.current !== undefined) return;
     const delay = Math.min(30_000, 200 * 2 ** uploadAttempts.current);
     uploadTimer.current = window.setTimeout(() => {
       uploadTimer.current = undefined;
       void flushUploads();
     }, delay);
-  };
+    // flushUploads reads current React state and is deliberately invoked after a bounded delay.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [credentials]);
+  const record = useCallback(
+    (message: string, outcome: DiagnosticEvent['outcome'] = 'info') => {
+      const event = report.record('summary', outcome, message, 0, attempt?.id);
+      if (!event) {
+        setUploadStatus('truncated');
+        return;
+      }
+      pendingEvents.current.push(event);
+      setUploadStatus('pending');
+      scheduleUpload();
+    },
+    [attempt?.id, report, scheduleUpload],
+  );
   const flushUploads = async () => {
     if (!credentials || uploadRunning.current || !pendingEvents.current.length) return;
     uploadRunning.current = true;
@@ -254,117 +276,292 @@ function App() {
       uploadAttempts.current++;
       setUploadStatus('upload-failed');
       setError(
-        `Report upload failed: ${uploadError instanceof Error ? uploadError.message : 'unknown error'}`,
+        `Report upload failed. You can still download it locally: ${uploadError instanceof Error ? uploadError.message : 'unknown error'}`,
       );
     } finally {
       uploadRunning.current = false;
       if (pendingEvents.current.length) scheduleUpload();
     }
   };
+
+  useEffect(() => checkController.current!.subscribe(setDeviceChecks), []);
+  useEffect(() => {
+    void checkController.current!.start({
+      configuration: appliedConfig,
+      configurationVersion: checksVersion,
+    });
+  }, [appliedConfig, checksVersion]);
+  useEffect(() => {
+    const network = (
+      navigator as Navigator & {
+        connection?: {
+          addEventListener: (type: 'change', listener: () => void) => void;
+          removeEventListener: (type: 'change', listener: () => void) => void;
+        };
+      }
+    ).connection;
+    const checkChangedNetwork = () => {
+      void checkController.current!.recheck({
+        configuration: appliedConfig,
+        configurationVersion: checksVersion,
+      });
+      record('detected network change; device checks restarted', 'start');
+      if (credentials)
+        setError(
+          'The network changed. Device checks restarted without interrupting the room; use Recheck device if the connection needs a coordinated retry.',
+        );
+    };
+    window.addEventListener('online', checkChangedNetwork);
+    network?.addEventListener('change', checkChangedNetwork);
+    return () => {
+      window.removeEventListener('online', checkChangedNetwork);
+      network?.removeEventListener('change', checkChangedNetwork);
+    };
+  }, [appliedConfig, checksVersion, credentials, record]);
   useEffect(() => {
     scheduleUpload();
     const interval = window.setInterval(() => void flushUploads(), 5_000);
     return () => window.clearInterval(interval);
-    // Upload functions intentionally use current render credentials.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [credentials]);
-  async function runPreflight() {
-    if (!config) {
-      setPreflightState('invalid');
+  }, [credentials, scheduleUpload]);
+  useEffect(() => {
+    const reportBuffer = reportRef.current;
+    const events = pendingEvents.current;
+    return () => {
+      cancelled.current = true;
+      checkController.current?.cancel();
+      if (uploadTimer.current !== undefined) window.clearTimeout(uploadTimer.current);
+      cleanups.current.forEach((close) => close());
+      if (credentialsRef.current && events.length)
+        void api
+          .uploadEvents(credentialsRef.current, reportBuffer.runId, events.slice(0, 100))
+          .catch(() => undefined);
+    };
+  }, []);
+
+  const tearDownAttempt = useCallback(
+    (forRetry: boolean) => {
+      if (forRetry && attempt) retryPreviousAttempt.current = attempt.id;
+      suiteGeneration.current++;
+      cancelled.current = true;
+      activePerformance.current?.cancel();
+      cleanups.current.forEach((close) => close());
+      cleanups.current = [];
+      mainChannel.current = null;
+      setAttempt(null);
+      setMatrix([]);
+      setPerformance('Not started');
+      started.current = false;
+      cancelled.current = false;
+    },
+    [attempt],
+  );
+
+  const startChecks = useCallback(
+    (disruptActive: boolean) => {
+      if (disruptActive) tearDownAttempt(true);
+      setError('');
+      setMain('Checking this device');
+      void checkController.current!.recheck({
+        configuration: appliedConfig,
+        configurationVersion: checksVersion,
+      });
+      record('device checks started', 'start');
+    },
+    [appliedConfig, checksVersion, record, tearDownAttempt],
+  );
+  const recheck = useCallback(() => {
+    if (
+      credentials &&
+      !window.confirm(
+        'Rechecking may interrupt the active connection and start a new diagnostic attempt. Continue?',
+      )
+    )
+      return;
+    startChecks(Boolean(credentials));
+  }, [credentials, startChecks]);
+  const applySettings = useCallback(() => {
+    let parsed: IceConfig;
+    try {
+      parsed = draftIceText.trim()
+        ? iceConfigSchema.parse(JSON.parse(draftIceText) as unknown)
+        : { iceServers: [] };
+    } catch (applyError) {
+      setFieldError(
+        applyError instanceof Error ? applyError.message : 'Enter valid ICE server JSON.',
+      );
       return;
     }
-    setPreflightState('running');
+    void parsed;
+    if (
+      credentials &&
+      !window.confirm(
+        'Applying network settings may interrupt the active connection and start a new diagnostic attempt. Continue?',
+      )
+    )
+      return;
+    if (credentials) tearDownAttempt(true);
+    setFieldError('');
+    setMain('Checking this device');
+    setAppliedIceText(draftIceText);
+    setConfigurationVersion((value) => value + 1);
     setError('');
-    record('preflight started', 'start');
-    const urls = config.iceServers.flatMap((item) =>
-      typeof item.urls === 'string' ? [item.urls] : item.urls,
-    );
-    const results = await Promise.all(urls.map((url) => probeIce(url)));
-    setPreflight(results);
-    setPreflightState('complete');
-    record(`preflight completed (${results.length} endpoint probes)`, 'success');
-  }
-  async function create() {
+  }, [credentials, draftIceText, tearDownAttempt]);
+
+  const createRoom = async () => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       const value = await api.createRoom();
       setCredentials(value);
       await api.registerRun(value, report.runId);
       setRoomCode(value.roomCode);
       history.replaceState(null, '', `?room=${value.roomCode}`);
-      setMain('Waiting for guest');
-    } catch (e) {
-      setError(String(e));
+      setMain('Waiting for the other device');
+      record('room created', 'success');
+    } catch (createError) {
+      setError(
+        `Unable to create a room. Check signaling and try again: ${createError instanceof Error ? createError.message : 'unknown error'}`,
+      );
+    } finally {
+      setSubmitting(false);
     }
-  }
-  async function join() {
+  };
+  const joinRoom = async () => {
+    if (submitting || !roomCode) return;
+    setSubmitting(true);
     try {
       const value = await api.joinRoom(roomCode);
       setCredentials(value);
       await api.registerRun(value, report.runId);
       setRoomCode(value.roomCode);
-      setMain('Waiting for host');
-    } catch (e) {
-      setError(String(e));
+      setMain('Waiting for the other device');
+      record('room joined', 'success');
+    } catch (joinError) {
+      setError(
+        `Unable to join this room. Check the code or ask for a new invitation: ${joinError instanceof Error ? joinError.message : 'unknown error'}`,
+      );
+    } finally {
+      setSubmitting(false);
     }
-  }
+  };
+  const chooseIntent = (next: 'create' | 'join') => {
+    if (next === 'join' && !roomCode) {
+      setError('Enter a room code to join.');
+      return;
+    }
+    setError('');
+    setIntent(next);
+  };
+  useEffect(() => {
+    if (!intent || credentials || submitting || deviceChecks.phase === 'checking') return;
+    if (!deviceChecks.ready || deviceChecks.configurationVersion !== checksVersion) return;
+    void Promise.resolve().then(() => {
+      if (
+        checkController.current?.current.ready &&
+        checkController.current.current.configurationVersion === checksVersion
+      ) {
+        setIntent(null);
+        void (intent === 'create' ? createRoom() : joinRoom());
+      }
+    });
+    // The ready snapshot is the gate; callbacks intentionally execute the captured explicit intent once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    checksVersion,
+    credentials,
+    deviceChecks.configurationVersion,
+    deviceChecks.phase,
+    deviceChecks.ready,
+    intent,
+    submitting,
+  ]);
+
   async function coordinate() {
-    if (!credentials || !config || started.current) return;
+    if (!credentials || coordinating.current) return;
+    coordinating.current = true;
     try {
-      await api.submitCapabilities(credentials, sanitizeIceConfig(config));
+      await api.submitCapabilities(credentials, sanitizeIceConfig(appliedConfig));
       const room = await api.status(credentials);
       if (!room.guestPresent || !room.capabilitiesReady) {
-        setMain('Waiting for peer diagnostics');
+        setMain('Waiting for the other device');
         return;
       }
-      let issued: IssuedAttempt | null = attempt;
-      if (retryPreviousAttempt.current && credentials.participantId === room.hostParticipantId) {
+      let currentAttempt = attempt;
+      if (started.current) {
+        if (!room.attemptId || room.attemptId === currentAttempt?.id) return;
+        tearDownAttempt(false);
+        currentAttempt = null;
+        setMain('Connecting devices');
+      }
+      let issued: IssuedAttempt | null = currentAttempt;
+      if (retryPreviousAttempt.current) {
         issued = await api.retry(credentials, retryPreviousAttempt.current);
         retryPreviousAttempt.current = null;
       } else if (!room.attemptId && credentials.participantId === room.hostParticipantId)
         issued = await api.createAttempt(credentials);
       else if (room.attemptId) issued = await api.attempt(credentials, room.attemptId);
       if (!issued) return;
-      if (!attempt || attempt.id !== issued.id) {
-        setAttempt(issued);
-        setMain(`Attempt ${issued.id}: acknowledging manifest`);
-      }
-      await api.registerRun(credentials, report.runId, issued.id);
+      setAttempt(issued);
       const ack = await api.acknowledge(credentials, issued);
       if (!ack.paired) {
-        setMain(`Attempt ${issued.id}: waiting for manifest acknowledgement`);
+        setMain('Waiting for the other device to confirm diagnostics');
         return;
       }
       started.current = true;
-      setAttempt(issued);
-      setMain(`Attempt ${issued.id}: diagnostics running`);
+      setMain('Connecting devices');
       await runMatrix(issued, room, suiteGeneration.current);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'coordination failed');
+    } catch (coordinateError) {
+      setError(
+        `Connection setup needs attention. Recheck this device or try again: ${coordinateError instanceof Error ? coordinateError.message : 'unknown error'}`,
+      );
+      setMain('Unable to connect');
+    } finally {
+      coordinating.current = false;
     }
   }
   useEffect(() => {
-    if (!credentials || !ready) return;
+    if (!credentials || !deviceChecks.ready || deviceChecks.configurationVersion !== checksVersion)
+      return;
     const first = window.setTimeout(() => void coordinate(), 10);
     const timer = window.setInterval(() => void coordinate(), 500);
     return () => {
       window.clearTimeout(first);
       window.clearInterval(timer);
     };
-    // configVersion is represented by `ready`; user edits reset readiness below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [credentials, ready, config]);
-  function installChat(channel: RTCDataChannel) {
+  }, [
+    credentials,
+    deviceChecks.ready,
+    deviceChecks.configurationVersion,
+    checksVersion,
+    appliedConfig,
+    attempt?.id,
+  ]);
+  function installChat(channel: RTCDataChannel, suite: number) {
     channel.addEventListener('message', ({ data }) => {
       if (typeof data === 'string' && data.startsWith('chat:'))
-        setMessages((items) => [...items, `Peer: ${data.slice(5)}`]);
+        setMessages((items) => [
+          ...items,
+          { id: crypto.randomUUID(), author: 'Other device', text: data.slice(5) },
+        ]);
     });
+    const disconnected = () => {
+      if (mainChannel.current !== channel || suite !== suiteGeneration.current) return;
+      mainChannel.current = null;
+      setMain('Disconnected');
+      setError('The other device disconnected. Recheck this device to start a new attempt.');
+    };
+    channel.addEventListener('close', disconnected, { once: true });
+    channel.addEventListener('error', disconnected, { once: true });
   }
   async function runMatrix(
     issued: IssuedAttempt,
     room: Awaited<ReturnType<ApiClient['status']>>,
     suite: number,
   ) {
-    if (!config) return;
+    const activeCredentials = credentials;
+    if (!activeCredentials) return;
     const profiles = [...(issued.manifest as unknown as Profile[])].sort(
       (left, right) => left.tier - right.tier || left.id.localeCompare(right.id),
     );
@@ -376,68 +573,95 @@ function App() {
       { row: MatrixRow; channel: RTCDataChannel; close: () => void }
     >();
     const completed = new Map<string, MatrixRow>();
-    const runners = Array.from({ length: Math.min(3, profiles.length) }, async () => {
-      for (;;) {
-        const current = index++;
-        if (current >= profiles.length) return;
-        const profile = profiles[current];
-        if (!profile) return;
-        const startedAt = window.performance.now();
-        setMatrix((rows) =>
-          rows.map((row) =>
-            row.id === profile.id
-              ? {
-                  ...row,
-                  status: 'running',
-                  outcome: 'running',
-                  queuedMs: Math.round(startedAt - (queuedAt.get(profile.id) ?? startedAt)),
-                }
-              : row,
-          ),
-        );
-        const probeId = `prb_${issued.id.slice(4, 24)}${String(current).padStart(2, '0')}`;
-        const result = await runPairedProbe({
-          api,
-          credentials: credentials!,
-          attempt: issued,
-          profile,
-          probeId,
-          peerId:
-            credentials!.participantId === room.hostParticipantId
-              ? room.guestParticipantId!
-              : room.hostParticipantId,
-          host: credentials!.participantId === room.hostParticipantId,
-          config,
-          cancelled: () => cancelled.current || suite !== suiteGeneration.current,
-        });
-        if (suite !== suiteGeneration.current) {
-          result.close();
-          return;
-        }
-        const row: MatrixRow = {
-          ...profile,
-          status: 'terminal',
-          outcome: result.outcome,
-          detail: result.detail,
-          ...(result.selected ? { selected: result.selected } : {}),
-          activeMs: Math.round(result.elapsedMs),
-        };
-        if (result.outcome === 'pass' && result.channel) {
-          const existing = retained.get(profile.tier);
-          if (!existing || row.id.localeCompare(existing.row.id) < 0) {
-            existing?.close();
-            retained.set(profile.tier, { row, channel: result.channel, close: result.close });
+    let selectedConnection:
+      { row: MatrixRow; channel: RTCDataChannel; close: () => void } | undefined;
+    const activateEligibleConnection = () => {
+      if (selectedConnection || suite !== suiteGeneration.current) return;
+      const eligible = selectEligibleProfile(
+        profiles.map(
+          (profile) =>
+            completed.get(profile.id) ?? {
+              ...profile,
+              status: 'queued' as const,
+              outcome: 'queued',
+            },
+        ),
+      );
+      const connection = eligible ? retained.get(eligible.tier) : undefined;
+      if (!eligible || !connection) return;
+      selectedConnection = connection;
+      mainChannel.current = connection.channel;
+      cleanups.current.push(connection.close);
+      installChat(connection.channel, suite);
+      setMain('Connected');
+      record(`selected path ${eligible.id}`, 'success');
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(3, profiles.length) }, async () => {
+        for (;;) {
+          const current = index++;
+          if (current >= profiles.length) return;
+          const profile = profiles[current]!;
+          const startedAt = window.performance.now();
+          setMatrix((rows) =>
+            rows.map((row) =>
+              row.id === profile.id
+                ? {
+                    ...row,
+                    status: 'running',
+                    outcome: 'running',
+                    queuedMs: Math.round(startedAt - (queuedAt.get(profile.id) ?? startedAt)),
+                  }
+                : row,
+            ),
+          );
+          const result = await runPairedProbe({
+            api,
+            credentials: activeCredentials,
+            attempt: issued,
+            profile,
+            probeId: `prb_${issued.id.slice(4, 24)}${String(current).padStart(2, '0')}`,
+            peerId:
+              activeCredentials.participantId === room.hostParticipantId
+                ? room.guestParticipantId!
+                : room.hostParticipantId,
+            host: activeCredentials.participantId === room.hostParticipantId,
+            config: appliedConfig,
+            cancelled: () => cancelled.current || suite !== suiteGeneration.current,
+          });
+          if (suite !== suiteGeneration.current) {
+            result.close();
+            return;
+          }
+          const row: MatrixRow = {
+            ...profile,
+            status: 'terminal',
+            outcome: result.outcome,
+            detail: result.detail,
+            ...(result.selected ? { selected: result.selected } : {}),
+            activeMs: Math.round(result.elapsedMs),
+          };
+          if (result.outcome === 'pass' && result.channel) {
+            const existing = retained.get(profile.tier);
+            if (!existing || row.id.localeCompare(existing.row.id) < 0) {
+              existing?.close();
+              retained.set(profile.tier, { row, channel: result.channel, close: result.close });
+            } else result.close();
           } else result.close();
-        } else result.close();
-        completed.set(profile.id, row);
-        setMatrix((rows) => rows.map((value) => (value.id === profile.id ? row : value)));
-        record(
-          `${profile.id}: ${result.outcome} (${result.detail})`,
-          result.outcome === 'pass' ? 'success' : result.outcome === 'timeout' ? 'timeout' : 'info',
-        );
-      }
-    });
-    await Promise.all(runners);
+          completed.set(profile.id, row);
+          activateEligibleConnection();
+          setMatrix((rows) => rows.map((value) => (value.id === profile.id ? row : value)));
+          record(
+            `${profile.id}: ${result.outcome} (${result.detail})`,
+            result.outcome === 'pass'
+              ? 'success'
+              : result.outcome === 'timeout'
+                ? 'timeout'
+                : 'info',
+          );
+        }
+      }),
+    );
     const terminalRows = profiles.map(
       (profile) =>
         completed.get(profile.id) ?? {
@@ -447,29 +671,30 @@ function App() {
         },
     );
     const selected = selectEligibleProfile(terminalRows);
-    const selectedConnection = selected ? retained.get(selected.tier) : undefined;
     for (const [tier, connection] of retained) if (tier !== selected?.tier) connection.close();
     if (selectedConnection && selected) {
-      mainChannel.current = selectedConnection.channel;
-      cleanups.current.push(selectedConnection.close);
-      installChat(selectedConnection.channel);
-      setMain(`Main ready: ${selected.id} (${selected.selected ?? 'pair evidence unavailable'})`);
-      await runPerformance(
+      void runPerformance(
         selectedConnection.channel,
-        credentials!.participantId === room.hostParticipantId,
+        activeCredentials.participantId === room.hostParticipantId,
       );
     } else {
-      setMain('No verified eligible connection; diagnostics complete');
-      setPerformance('Not run: no verified main connection');
+      setMain('Unable to connect');
+      setError(
+        'No verified connection path was available. Recheck the device or ask the other device to retry.',
+      );
+      setPerformance('Not run: no verified connection');
     }
     record('matrix diagnostics complete', 'success');
   }
   async function runPerformance(channel: RTCDataChannel, host: boolean) {
-    setPerformance(
-      'Performance: host-coordinated RTT and sequential receiver-measured goodput running',
+    setPerformance('Checking both participants’ bandwidth preference');
+    const protocol = new CoordinatedPerformance(
+      channel,
+      host,
+      window.__WEBRTC_TEST_PERF_LIMITS__,
+      undefined,
+      automaticBandwidthEnabled,
     );
-    const testLimits = window.__WEBRTC_TEST_PERF_LIMITS__;
-    const protocol = new CoordinatedPerformance(channel, host, testLimits);
     activePerformance.current = protocol;
     const result = await protocol.run((directionResult) =>
       setPerformanceDirections((rows) => [
@@ -480,13 +705,17 @@ function App() {
     activePerformance.current = null;
     protocol.dispose();
     if (result.cancelled) {
-      setPerformance('Performance cancelled');
+      setPerformance('Performance check cancelled');
+      return;
+    }
+    if (result.skippedReason) {
+      setPerformance(result.skippedReason);
       return;
     }
     const rtt = summarizeRtt(result.rtts, result.unanswered);
     setPerformanceDirections(result.directions);
     setPerformance(
-      `Complete: RTT min/median/p95/max ${rtt.min ?? '—'}/${rtt.median ?? '—'}/${rtt.p95 ?? '—'}/${rtt.max ?? '—'} ms; ${rtt.count}/20 answered, ${rtt.unanswered} unanswered. Receiver metrics below; short data-channel goodput, not ISP bandwidth.`,
+      `Complete: RTT min/median/p95/max ${rtt.min ?? '—'}/${rtt.median ?? '—'}/${rtt.p95 ?? '—'}/${rtt.max ?? '—'} ms; ${rtt.count}/20 answered. Short data-channel goodput is not ISP bandwidth.`,
     );
     record(
       `performance complete (${rtt.count}/20 RTT; ${result.directions.length} receiver results)`,
@@ -494,279 +723,344 @@ function App() {
     );
   }
   async function leave() {
-    suiteGeneration.current++;
-    cancelled.current = true;
-    activePerformance.current?.cancel();
-    cleanups.current.forEach((close) => close());
-    cleanups.current = [];
-    mainChannel.current = null;
+    tearDownAttempt(false);
     await (credentials ? api.leave(credentials) : Promise.resolve()).catch(() => undefined);
     setCredentials(null);
-    setAttempt(null);
-    setMatrix([]);
-    started.current = false;
-    cancelled.current = false;
-    setMain('Left; rerun preflight before retry');
-    setPreflightState('required');
-  }
-  function invalidateConfiguration() {
-    if (attempt) retryPreviousAttempt.current = attempt.id;
-    suiteGeneration.current++;
-    cancelled.current = true;
-    activePerformance.current?.cancel();
-    cleanups.current.forEach((close) => close());
-    cleanups.current = [];
-    mainChannel.current = null;
-    setAttempt(null);
-    setMatrix([]);
-    started.current = false;
-    setMain('Configuration changed; diagnostics cancelled. Rerun preflight to retry.');
-    setPreflight([]);
-    setPreflightState('required');
-    // New suites use a distinct generation; old callbacks retain their captured one.
-    cancelled.current = false;
+    setMessages([]);
+    setMain('Disconnected');
+    setError('');
+    setIntent(null);
   }
   function send() {
     if (!draft.trim() || mainChannel.current?.readyState !== 'open') return;
     mainChannel.current.send(`chat:${draft}`);
-    setMessages((items) => [...items, `You: ${draft}`]);
+    setMessages((items) => [...items, { id: crypto.randomUUID(), author: 'You', text: draft }]);
     record('chat message sent');
     setDraft('');
   }
+  const copyInvitation = async () => {
+    try {
+      await navigator.clipboard.writeText(
+        `${location.origin}${location.pathname}?room=${roomCode}`,
+      );
+      setInvitationFeedback('Invitation copied.');
+    } catch {
+      setInvitationFeedback('Could not copy the invitation. Copy the room code instead.');
+    }
+  };
+  const completeSnapshot = () =>
+    report.completeSnapshot({
+      attemptId: attempt?.id,
+      configurationVersion: checksVersion,
+      deviceChecks,
+      matrix,
+      performance: {
+        automaticBandwidthEnabled,
+        status: performance,
+        directions: performanceDirections,
+      },
+      outcome: main,
+      uploadStatus,
+    });
+  const copyCompleteReport = async () => {
+    try {
+      await copyReport(completeSnapshot());
+      setInvitationFeedback('Diagnostic report copied.');
+    } catch {
+      setError('Could not copy the report. Download it instead.');
+    }
+  };
   const counts = matrix.reduce<Record<string, number>>(
     (all, row) => ({ ...all, [row.status]: (all[row.status] ?? 0) + 1 }),
     {},
   );
-  return (
-    <main className={compact ? 'compact' : ''}>
-      <header>
-        <h1>WebRTC Room diagnostics</h1>
-        <p aria-live="polite">
-          {status} · {main}
-        </p>
-      </header>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      <section className="RoomControls">
-        <h2>Room controls</h2>
-        <p>Run diagnostics on both devices before creating or joining.</p>
-        <div className="row">
-          <button onClick={() => void create()} disabled={!ready}>
-            Create room
-          </button>
-          <label>
-            Room code{' '}
-            <input
-              value={roomCode}
-              onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-              maxLength={10}
-            />
-          </label>
-          <button onClick={() => void join()} disabled={!ready || !roomCode}>
-            Join room
-          </button>
-          <button onClick={() => void leave()} disabled={!credentials}>
-            Leave
-          </button>
-        </div>
-        {credentials && (
-          <p>
-            Code: <strong>{roomCode}</strong> · Link: {location.origin}
-            {location.pathname}?room={roomCode} · Visible attempt:{' '}
-            <strong>{attempt?.id ?? `local ${report.runId}`}</strong>
-          </p>
-        )}
-      </section>
-      <section className="IceConfiguration">
-        <h2>ICE configuration</h2>
-        <label>
-          TURN JSON{' '}
-          <textarea
-            value={iceText}
-            onChange={(e) => {
-              setIceText(e.target.value);
-              invalidateConfiguration();
-            }}
-            placeholder='{"iceServers":[{"urls":"turn:relay.example:3478","username":"user","credential":"password"}]}'
-          />
-        </label>
-        <p>
-          Preview:{' '}
-          {config
-            ? sanitizeIceConfig(config)
-                .map((server) => `${server.kind} (${server.transports.join(', ')})`)
-                .join(', ')
-            : 'Invalid ICE configuration'}
-        </p>
-        <button onClick={() => void runPreflight()} disabled={preflightState === 'running'}>
-          Run diagnostics
-        </button>
-      </section>
-      <section className="PreflightResults">
-        <h2>Preflight results</h2>
-        <p aria-live="polite">
-          {preflightState}. Completion unlocks valid configuration even if endpoint checks fail.
-        </p>
-        <ul>
-          {preflight.map((result) => (
-            <li key={result.url}>
-              {result.url}: <strong>{result.outcome}</strong> ({result.elapsedMs} ms;{' '}
-              {result.candidates.length} candidates)
-            </li>
-          ))}
-        </ul>
-      </section>
-      <section className="ConnectionStatus">
-        <h2>Connection status</h2>
-        <p>
-          Main ready: {main}. Diagnostics complete:{' '}
-          {matrix.length
-            ? `${counts.terminal ?? 0}/${matrix.length}; ${counts.running ?? 0} active, ${counts.queued ?? 0} queued`
-            : 'not started'}
-          .
-        </p>
-      </section>
-      <details open>
-        <summary>Diagnostics detail</summary>
-        <section className="CandidateTable">
-          <h2>Candidate table</h2>
-          <p>
-            Address values are intentionally not retained; mDNS/browser omissions are reported as
-            unavailable.
-          </p>
-          <table>
-            <thead>
-              <tr>
-                <th>Endpoint</th>
-                <th>Outcome</th>
-                <th>Candidates</th>
-              </tr>
-            </thead>
-            <tbody>
-              {preflight.map((r) => (
-                <tr key={r.url}>
-                  <td>{r.url}</td>
-                  <td>{r.outcome}</td>
-                  <td>
-                    {r.candidates
-                      .map((c) => `${c.type}/${c.protocol}/${c.addressFamily}`)
-                      .join(', ') || 'none'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-        <section className="Matrix">
-          <h2>Connectivity matrix</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Profile</th>
-                <th>Status</th>
-                <th>Queue / active</th>
-                <th>Evidence</th>
-              </tr>
-            </thead>
-            <tbody>
-              {matrix.map((r) => (
-                <tr key={r.id}>
-                  <td>
-                    {r.a} → {r.b}
-                  </td>
-                  <td>{r.outcome}</td>
-                  <td>
-                    {r.queuedMs ?? 0} / {r.activeMs ?? 0} ms
-                  </td>
-                  <td>{r.detail ?? r.selected ?? 'pending'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-        <section className="DiagnosticTimeline">
-          <h2>Diagnostic timeline</h2>
-          <pre>{report.text() || 'No events yet.'}</pre>
-        </section>
-        <section className="PerformancePanel">
-          <h2>Performance panel</h2>
-          <p>{performance}</p>
-          <button
-            onClick={() => {
-              cancelled.current = true;
-              activePerformance.current?.cancel();
-              setPerformance('Cancellation requested');
-            }}
-          >
-            Cancel performance
-          </button>
-          <ul aria-label="Receiver measured directions">
-            {performanceDirections.map((direction) => (
-              <li key={direction.direction}>
-                {direction.direction}: receiver {direction.mbps?.toFixed(2) ?? '—'} Mbps,{' '}
-                {direction.bytes} bytes, {Math.round(direction.elapsedMs)} ms ({direction.reason})
-              </li>
-            ))}
-          </ul>
-        </section>
-      </details>
-      <section className="TextDemo">
-        <h2>Text demo</h2>
-        <div className="messages" aria-live="polite">
-          {messages.map((message, i) => (
-            <p key={`${message}-${i}`}>{message}</p>
-          ))}
-        </div>
-        <label>
-          Message{' '}
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') send();
-            }}
-          />
-        </label>
-        <button onClick={send} disabled={mainChannel.current?.readyState !== 'open'}>
-          Send
-        </button>
-      </section>
-      <section className="ReportExport">
-        <h2>Report export</h2>
-        <p>
-          Upload: {uploadStatus};{' '}
-          {report.dropped ? `Truncated: ${report.dropped}` : 'Not truncated'}.
-        </p>
-        <button onClick={() => void navigator.clipboard.writeText(report.text())}>
-          Copy text report
-        </button>
-        <button
-          onClick={() =>
-            downloadReport({ ...report.snapshot(), attemptId: attempt?.id, preflight, matrix })
+  const surfaceStatus = credentials
+    ? main
+    : deviceChecks.phase === 'checking'
+      ? 'Checking this device'
+      : deviceChecks.ready
+        ? 'This device is ready'
+        : 'Unable to prepare this device';
+  const roomPhase: RoomSurfaceModel['phase'] =
+    error && !credentials
+      ? 'failure'
+      : main === 'Connected'
+        ? 'connected'
+        : credentials
+          ? main.includes('Waiting')
+            ? 'waiting'
+            : main === 'Disconnected'
+              ? 'disconnected'
+              : main === 'Unable to connect'
+                ? 'failure'
+                : 'connecting'
+          : deviceChecks.phase === 'checking'
+            ? intent
+              ? 'pending-intent'
+              : invitation
+                ? 'invitation'
+                : 'checking'
+            : invitation
+              ? 'invitation'
+              : 'start';
+  const blocker = deviceChecks.blockingPrerequisites[0];
+  const roomModel: RoomSurfaceModel = {
+    phase: roomPhase,
+    title:
+      roomPhase === 'connected'
+        ? 'Connected'
+        : roomPhase === 'waiting'
+          ? 'Waiting for the other device'
+          : invitation
+            ? `Join room ${roomCode}`
+            : 'Connect two devices',
+    status: surfaceStatus,
+    detail:
+      roomPhase === 'connected'
+        ? 'Messages are ready while network checks continue.'
+        : (blocker ??
+          (deviceChecks.phase === 'checking'
+            ? invitation
+              ? 'Join when ready. We will wait for the current device checks before using the room.'
+              : 'You can choose Create or Join now. We will wait for the current device checks.'
+            : `Automatic bandwidth testing is ${automaticBandwidthEnabled ? 'enabled' : 'disabled'} before connection.`)),
+    ...(credentials
+      ? {
+          roomCode,
+          invitationUrl: `${location.origin}${location.pathname}?room=${roomCode}`,
+        }
+      : {}),
+    invitationFeedback,
+    error,
+    ...(deviceChecks.phase === 'checking'
+      ? {
+          diagnosticsProgress: `Checking device: ${deviceChecks.progress.completed} of ${deviceChecks.progress.total}`,
+        }
+      : matrix.length
+        ? {
+            diagnosticsProgress: `Network checks: ${counts.terminal ?? 0} of ${matrix.length} complete`,
           }
-        >
-          Download JSON
-        </button>
-        <button onClick={() => setCompact((value) => !value)}>Compact view</button>
-      </section>
-      <section className="OwnerAttemptList">
-        <h2>Owner attempt list</h2>
-        <p>
-          Owner review is available at <code>/admin</code> through fail-closed server identity
-          checks.
-        </p>
-      </section>
-      <section className="OwnerAttemptDetail">
-        <h2>Owner attempt detail</h2>
-        <p>
-          Local dev identity may be configured only on loopback; hosted ChatGPT identity is verified
-          during Codex deployment.
-        </p>
-      </section>
-    </main>
+        : {}),
+    ...(credentials
+      ? {
+          participantSlots: [
+            {
+              label: 'This device',
+              state: main === 'Connected' ? 'Connected' : deviceChecks.ready ? 'Ready' : 'Checking',
+              current: true,
+            },
+            {
+              label: 'Other device',
+              state:
+                main === 'Connected'
+                  ? 'Connected'
+                  : main.includes('Waiting')
+                    ? 'Waiting'
+                    : main === 'Disconnected'
+                      ? 'Disconnected'
+                      : 'Connecting',
+            },
+          ],
+        }
+      : {}),
+    messages,
+    messageDraft: draft,
+    canSend: mainChannel.current?.readyState === 'open',
+    roomCodeDraft: roomCode,
+    actions: credentials
+      ? [
+          { id: 'leave', label: 'Leave room', tone: 'danger', onClick: () => void leave() },
+          ...(main === 'Unable to connect' || main === 'Disconnected'
+            ? [{ id: 'retry', label: 'Recheck device', tone: 'primary' as const, onClick: recheck }]
+            : []),
+        ]
+      : intent
+        ? [
+            ...(blocker
+              ? [
+                  {
+                    id: 'recheck',
+                    label: 'Recheck device',
+                    tone: 'primary' as const,
+                    onClick: recheck,
+                  },
+                ]
+              : []),
+            {
+              id: 'withdraw',
+              label: 'Cancel pending action',
+              tone: 'secondary',
+              onClick: () => setIntent(null),
+            },
+          ]
+        : [
+            {
+              id: 'join',
+              label: 'Join room',
+              tone: invitation ? 'primary' : 'secondary',
+              disabled: submitting || Boolean(blocker) || !roomCode,
+              onClick: () => chooseIntent('join'),
+            },
+            {
+              id: 'create',
+              label: 'Create a room',
+              tone: invitation ? 'secondary' : 'primary',
+              disabled: submitting || Boolean(blocker),
+              onClick: () => chooseIntent('create'),
+            },
+            {
+              id: 'bandwidth',
+              label: automaticBandwidthEnabled
+                ? 'Automatic bandwidth: on'
+                : 'Automatic bandwidth: off',
+              tone: 'secondary',
+              onClick: () => setAutomaticBandwidthEnabled((value) => !value),
+            },
+            ...(blocker
+              ? [
+                  {
+                    id: 'recheck',
+                    label: 'Recheck device',
+                    tone: 'secondary' as const,
+                    onClick: recheck,
+                  },
+                ]
+              : []),
+          ],
+  };
+  const diagnosticsModel: DiagnosticsViewModel = {
+    headline: deviceChecks.phase === 'complete' ? 'Checks complete' : 'Checking this device',
+    progress: `${deviceChecks.progress.completed} of ${deviceChecks.progress.total} device checks; ${matrix.length ? `${counts.terminal ?? 0} of ${matrix.length} connection paths complete` : 'connection paths wait for a peer'}`,
+    report: {
+      runId: report.runId,
+      ...(attempt ? { attemptId: attempt.id } : {}),
+      saveStatus: uploadStatus,
+      coverage: `${deviceChecks.results.length} device checks, ${matrix.length} paths`,
+      outcome: surfaceStatus,
+      path: matrix.find((row) => row.outcome === 'pass')?.selected ?? 'No selected path yet',
+      measurements: performanceDirections.length
+        ? `${performanceDirections.length} direction measurements`
+        : 'Not measured',
+      failures: [
+        ...deviceChecks.blockingPrerequisites,
+        ...matrix
+          .filter(
+            (row) =>
+              row.outcome &&
+              row.outcome !== 'pass' &&
+              row.outcome !== 'queued' &&
+              row.outcome !== 'running',
+          )
+          .map((row) => `${row.a} → ${row.b}: ${row.detail ?? row.outcome}`),
+      ],
+    },
+    advancedSettings: {
+      draft: draftIceText,
+      error: fieldError,
+      preview: draftPreview,
+      applying: false,
+    },
+    performance: {
+      preference: automaticBandwidthEnabled
+        ? 'Automatic bandwidth check enabled locally'
+        : 'Disabled locally before connection',
+      budget: 'Up to 16 MiB total and 5 seconds per direction',
+      status: performance,
+      automaticBandwidthEnabled,
+      directions: performanceDirections.map((result) => ({
+        direction: result.direction,
+        result: `${result.mbps?.toFixed(2) ?? '—'} Mbps, ${result.bytes} bytes (${result.reason})`,
+      })),
+    },
+    groups: [
+      {
+        id: 'device',
+        title: 'Device checks',
+        summary: deviceChecks.phase,
+        checks: deviceChecks.results.map((result) => ({
+          id: result.id,
+          label: result.label,
+          outcome: result.outcome,
+          duration: `${result.elapsedMs} ms`,
+          ...(result.candidateTypes ? { detail: result.candidateTypes.join(', ') } : {}),
+        })),
+      },
+      {
+        id: 'paths',
+        title: 'Connection paths',
+        summary: matrix.length
+          ? `${counts.terminal ?? 0} of ${matrix.length} complete`
+          : 'Waiting for peer',
+        matrix: matrix.map((row) => ({
+          id: row.id,
+          profile: `${row.a} → ${row.b}`,
+          outcome: row.outcome ?? 'queued',
+          queued: `${row.queuedMs ?? 0} ms`,
+          active: `${row.activeMs ?? 0} ms`,
+          evidence: row.detail ?? row.selected ?? 'pending',
+        })),
+      },
+      {
+        id: 'events',
+        title: 'Event log and timing',
+        summary: `${report.snapshot().events.length} retained`,
+        events: report
+          .snapshot()
+          .events.slice(-50)
+          .map((event) => ({
+            id: event.spanId,
+            timestamp: event.clientTime,
+            text: event.payload.message ?? event.type,
+            outcome: event.outcome,
+          })),
+      },
+    ],
+  };
+  const diagnosticsOpener = useRef<HTMLElement>(null);
+  const mobileModalChange = useCallback((isModal: boolean) => {
+    const shell = document.querySelector<HTMLElement>('.app-shell');
+    if (shell) shell.inert = isModal;
+  }, []);
+  return (
+    <>
+      <RoomSurface
+        model={roomModel}
+        callbacks={{
+          onRoomCodeChange: setRoomCode,
+          onCopyInvitation: () => void copyInvitation(),
+          onMessageDraftChange: setDraft,
+          onSendMessage: send,
+          onOpenDiagnostics: () => {
+            diagnosticsOpener.current =
+              document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            setDrawerOpen(true);
+          },
+        }}
+      />
+      <DiagnosticsDrawer
+        open={drawerOpen}
+        model={diagnosticsModel}
+        openerRef={diagnosticsOpener}
+        callbacks={{
+          onClose: () => setDrawerOpen(false),
+          onMobileModalChange: mobileModalChange,
+          onRecheckDevice: recheck,
+          onAutomaticBandwidthEnabledChange: setAutomaticBandwidthEnabled,
+          onAdvancedDraftChange: (value) => {
+            setDraftIceText(value);
+            setFieldError('');
+          },
+          onApplyAdvancedSettings: applySettings,
+          onCopyReport: () => void copyCompleteReport(),
+          onDownloadReport: () => downloadReport(completeSnapshot()),
+          onShowCompactReport: () => undefined,
+          onCancelPerformance: () => {
+            activePerformance.current?.cancel();
+            setPerformance('Cancellation requested');
+          },
+        }}
+      />
+    </>
   );
 }
 createRoot(document.getElementById('root')!).render(

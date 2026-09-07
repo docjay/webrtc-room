@@ -32,8 +32,10 @@ export type PerformanceResult = {
   unanswered: number;
   directions: DirectionResult[];
   cancelled: boolean;
+  skippedReason?: string;
 };
 type Control =
+  | { perf: true; type: 'preference'; enabled: boolean }
   | { perf: true; type: 'rtt-ping'; id: string }
   | { perf: true; type: 'rtt-pong'; id: string }
   | { perf: true; type: 'start'; direction: DirectionResult['direction'] }
@@ -82,6 +84,7 @@ export class CoordinatedPerformance {
     { bytes: number; startedAt: number }
   >();
   private readonly results = new Map<DirectionResult['direction'], DirectionResult>();
+  private remotePreference: boolean | undefined;
   private cancelled = false;
   private onResult: ((result: DirectionResult) => void) | undefined;
   public constructor(
@@ -89,6 +92,7 @@ export class CoordinatedPerformance {
     private readonly host: boolean,
     limits: Partial<PerformanceLimits> = {},
     private readonly now = () => performance.now(),
+    private readonly automaticEnabled = true,
   ) {
     this.limits = { ...PERFORMANCE_DEFAULTS, ...limits };
     channel.bufferedAmountLowThreshold = this.limits.highWaterBytes / 2;
@@ -103,6 +107,18 @@ export class CoordinatedPerformance {
   }
   async run(onResult?: (result: DirectionResult) => void): Promise<PerformanceResult> {
     this.onResult = onResult;
+    const preference = await this.synchronizePreference();
+    if (!preference)
+      return {
+        rtts: [],
+        unanswered: 0,
+        directions: [],
+        cancelled: false,
+        skippedReason:
+          this.remotePreference === false || !this.automaticEnabled
+            ? 'Automatic bandwidth testing was disabled by a participant.'
+            : 'The other participant did not confirm automatic bandwidth testing.',
+      };
     if (!this.host) return this.waitForCompletion();
     const rtts = await this.runRtt();
     if (!this.cancelled) await this.runDirection('a-to-b');
@@ -125,7 +141,9 @@ export class CoordinatedPerformance {
       }
       return;
     }
-    if (message.type === 'rtt-ping') this.send({ perf: true, type: 'rtt-pong', id: message.id });
+    if (message.type === 'preference') this.remotePreference = message.enabled;
+    else if (message.type === 'rtt-ping')
+      this.send({ perf: true, type: 'rtt-pong', id: message.id });
     else if (message.type === 'rtt-pong') {
       const startedAt = this.starts.get(message.id);
       if (startedAt !== undefined) this.rttReplies.set(message.id, this.now() - startedAt);
@@ -159,6 +177,15 @@ export class CoordinatedPerformance {
   };
   private send(message: Control) {
     if (this.channel.readyState === 'open') this.channel.send(JSON.stringify(message));
+  }
+  private async synchronizePreference() {
+    const deadline = this.now() + 3_000;
+    while (!this.cancelled && this.remotePreference === undefined && this.now() < deadline) {
+      this.send({ perf: true, type: 'preference', enabled: this.automaticEnabled });
+      await this.sleep(100);
+    }
+    this.send({ perf: true, type: 'preference', enabled: this.automaticEnabled });
+    return !this.cancelled && this.automaticEnabled && this.remotePreference === true;
   }
   private async runRtt() {
     const ids: string[] = [];
@@ -248,6 +275,6 @@ export class CoordinatedPerformance {
     };
   }
   private sleep(ms: number) {
-    return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+    return new Promise<void>((resolve) => globalThis.setTimeout(resolve, ms));
   }
 }

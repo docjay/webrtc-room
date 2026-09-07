@@ -191,7 +191,7 @@ export class Repository {
       const attempt = canonical
         ? await this.attemptForGeneration(code, canonical.generation)
         : null;
-      if (!previous && attempt)
+      if ((!previous || attempt?.previous_id === previous) && attempt)
         return {
           id: attempt.id,
           generation: attempt.generation,

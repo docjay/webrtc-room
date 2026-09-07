@@ -1,12 +1,19 @@
 import type { ApiClient, Credentials, IssuedAttempt } from './api.js';
-import { normalizeCandidate } from '../shared/normalization.js';
+import { normalizeRtcIceCandidate, type CandidateEvidence } from '../shared/normalization.js';
 import { sanitizeIceConfig, type IceConfig, type Profile } from '../shared/domain.js';
 
 export type ProbeResult = {
-  url: string;
-  outcome: 'success' | 'failure' | 'timeout';
+  outcome: 'success' | 'failure' | 'timeout' | 'cancelled';
   elapsedMs: number;
-  candidates: ReturnType<typeof normalizeCandidate>[];
+  candidates: CandidateEvidence[];
+};
+export type ProbeIceOptions = {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  rtcFactory?: (configuration: RTCConfiguration) => RTCPeerConnection;
+  now?: () => number;
+  setTimeout?: (handler: () => void, ms: number) => ReturnType<typeof globalThis.setTimeout>;
+  clearTimeout?: (timer: ReturnType<typeof globalThis.setTimeout>) => void;
 };
 export type ProbeTerminal = {
   outcome: 'pass' | 'inconclusive' | 'timeout' | 'unsupported' | 'cancelled' | 'failure';
@@ -16,33 +23,80 @@ export type ProbeTerminal = {
   channel?: RTCDataChannel;
   close: () => void;
 };
-export async function probeIce(url: string, timeoutMs = 15_000): Promise<ProbeResult> {
-  const started = performance.now(),
-    pc = new RTCPeerConnection({ iceServers: [{ urls: url }] }),
-    candidates: ReturnType<typeof normalizeCandidate>[] = [];
+export async function probeIce(
+  server: RTCIceServer | string | undefined,
+  options: ProbeIceOptions | number = {},
+): Promise<ProbeResult> {
+  const resolvedOptions = typeof options === 'number' ? { timeoutMs: options } : options;
+  const timeoutMs = resolvedOptions.timeoutMs ?? 15_000;
+  const url =
+    server === undefined ? 'local' : typeof server === 'string' ? server : String(server.urls);
+  const expectedType = url.startsWith('turn')
+    ? 'relay'
+    : url.startsWith('stun:')
+      ? 'srflx'
+      : undefined;
+  const now = resolvedOptions.now ?? (() => performance.now());
+  const setTimer =
+    resolvedOptions.setTimeout ?? ((handler, ms) => globalThis.setTimeout(handler, ms));
+  const clearTimer = resolvedOptions.clearTimeout ?? ((timer) => globalThis.clearTimeout(timer));
+  const started = now();
+  const candidates: CandidateEvidence[] = [];
+  let pc: RTCPeerConnection | undefined;
   try {
+    try {
+      pc = (
+        resolvedOptions.rtcFactory ?? ((configuration) => new RTCPeerConnection(configuration))
+      )({
+        iceServers:
+          server === undefined ? [] : [typeof server === 'string' ? { urls: server } : server],
+        ...(expectedType === 'relay' ? { iceTransportPolicy: 'relay' } : {}),
+      });
+    } catch {
+      return { outcome: 'failure', elapsedMs: Math.round(now() - started), candidates };
+    }
+    const connection = pc;
     const outcome = await new Promise<ProbeResult['outcome']>((resolve) => {
-      const timer = window.setTimeout(() => resolve('timeout'), timeoutMs);
-      pc.onicecandidate = ({ candidate }) => {
-        if (candidate)
-          candidates.push(normalizeCandidate(candidate.toJSON() as Record<string, unknown>));
+      let settled = false;
+      const settle = (value: ProbeResult['outcome']) => {
+        if (settled) return;
+        settled = true;
+        clearTimer(timer);
+        resolvedOptions.signal?.removeEventListener('abort', cancelled);
+        resolve(value);
+      };
+      const timer = setTimer(() => settle('timeout'), timeoutMs);
+      const cancelled = () => settle('cancelled');
+      if (resolvedOptions.signal?.aborted) {
+        cancelled();
+        return;
+      }
+      resolvedOptions.signal?.addEventListener('abort', cancelled, { once: true });
+      connection.onicecandidate = ({ candidate }) => {
+        if (candidate) candidates.push(normalizeRtcIceCandidate(candidate));
         else {
-          clearTimeout(timer);
-          resolve(candidates.length ? 'success' : 'failure');
+          settle(
+            expectedType
+              ? candidates.some((value) => value.type === expectedType)
+                ? 'success'
+                : 'failure'
+              : candidates.length > 0
+                ? 'success'
+                : 'failure',
+          );
         }
       };
-      pc.createDataChannel('preflight');
-      void pc
+      connection.createDataChannel('preflight');
+      void connection
         .createOffer()
-        .then((offer) => pc.setLocalDescription(offer))
+        .then((offer) => connection.setLocalDescription(offer))
         .catch(() => {
-          clearTimeout(timer);
-          resolve('failure');
+          settle('failure');
         });
     });
-    return { url, outcome, elapsedMs: Math.round(performance.now() - started), candidates };
+    return { outcome, elapsedMs: Math.round(now() - started), candidates };
   } finally {
-    pc.close();
+    pc?.close();
   }
 }
 
