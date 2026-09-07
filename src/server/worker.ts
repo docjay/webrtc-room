@@ -388,7 +388,14 @@ export function createWorker(deps: Dependencies = {}) {
         }
         // Keep the API Worker and Vite client as separate outputs locally while
         // letting Sites serve the packaged client assets in production.
-        if (!url.pathname.startsWith('/api/') && env.ASSETS) return env.ASSETS.fetch(request);
+        if (!url.pathname.startsWith('/api/') && env.ASSETS) {
+          const asset = await env.ASSETS.fetch(request);
+          // The Vite client owns browser routes such as /admin. Sites serves
+          // concrete assets first; only a missing non-API asset falls back to
+          // the client entry point.
+          if (asset.status !== 404) return asset;
+          return env.ASSETS.fetch(new Request(new URL('/', request.url)));
+        }
         return json({ error: 'not found' }, 404);
       } catch (error) {
         return json(

@@ -45,6 +45,31 @@ async function credentials(request: (path: string, init?: RequestInit) => Promis
 }
 
 describe('worker room integration', () => {
+  it('falls back to the Vite client entry for hosted browser routes', async () => {
+    const DB = await sqliteD1(schema);
+    const requested: string[] = [];
+    const worker = createWorker();
+    const response = await worker.fetch(
+      new Request('https://site.example/admin'),
+      {
+        DB,
+        ASSETS: {
+          fetch: (request) => {
+            requested.push(new URL(request.url).pathname);
+            return Promise.resolve(
+              requested.length === 1
+                ? new Response('missing', { status: 404 })
+                : new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } }),
+            );
+          },
+        },
+      },
+      context,
+    );
+    expect(requested).toEqual(['/admin', '/']);
+    expect(response.headers.get('content-type')).toContain('text/html');
+  });
+
   it('requires matching manifest acknowledgements before allowing scoped signaling', async () => {
     const { request } = await fixture();
     const { host, guest, auth } = await credentials(request);

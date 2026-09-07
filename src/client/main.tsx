@@ -757,5 +757,5 @@ function App() {
   );
 }
 createRoot(document.getElementById('root')!).render(
-  location.pathname === '/admin' ? <Admin /> : <App />,
+  location.pathname === '/admin' || location.pathname === '/admin/' ? <Admin /> : <App />,
 );
