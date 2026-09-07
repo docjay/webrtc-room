@@ -137,7 +137,7 @@ Release acceptance: demo works; all three diagnostic phases are usable; performa
 
 ## Implementation sequence and delegation
 
-Model routing and allowance policy are maintained in AGENTS.md: Terra orchestrates by default, Luna handles narrow tasks, Sol handles targeted escalations/reviews, and Astra requires explicit escalation approval. Prefer existing Codex allowance; additional spending/reset redemption requires user authorization.
+Model routing and efficient-execution policy are maintained in AGENTS.md: Terra orchestrates by default, Luna handles narrow tasks, Sol handles targeted escalations/reviews, and Astra is reserved for justified exceptional escalations. There are no user-imposed session/token budgets or allowance checkpoints. Complete the full scope and validation while avoiding unnecessary model expense and duplicated work. Purchases, billing changes, reset redemption, and paid external-service provisioning still require user authorization. KICKOFF.md contains the implementation prompt. These agent-usage changes do not alter application safety limits such as probe traffic caps, timeouts, log bounds, and retention.
 
 1. Root orchestrator owns Sites lifecycle, scaffolding, checkout edits, integration, source/version/deployment operations, and final validation. First settle this spec with the user.
 2. Establish module contracts, schemas, static checks and test harness; then implement room/signaling and a minimal data-channel path.

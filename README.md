@@ -13,7 +13,7 @@ Local project preparation for a two-device WebRTC app hosted with Sites.
 
 ## Current status
 
-The local Git repository is initialized. The implementation plan is in [SPEC.md](SPEC.md); model routing, cost policy, and contributor instructions are in [AGENTS.md](AGENTS.md). Application code, dependencies, hosting registration, and deployment have not been created yet. There is no GitHub remote.
+The local Git repository is initialized. The implementation plan is in [SPEC.md](SPEC.md); model routing, efficient-execution policy, and contributor instructions are in [AGENTS.md](AGENTS.md). The implementation prompt is in [KICKOFF.md](KICKOFF.md). Application code, dependencies, hosting registration, and deployment have not been created yet. There is no GitHub remote.
 
 ## Next implementation steps
 
