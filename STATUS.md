@@ -2,14 +2,19 @@
 
 ## Current milestone - 2026-09-07
 
-- Implemented the approved room-first participant flow at source commit
-  `99d1471`: automatic generation-safe device checks, explicit pending room
+- Implemented the approved room-first participant flow through source commit
+  `aced61a`: automatic generation-safe device checks, explicit pending room
   intent, invitation-first joining, waiting/connected/recovery states, primary
   messaging, copy invitation, and coordinated participant-initiated retries.
 - Added a diagnostics drawer closed by default: non-modal desktop panel,
   focus-contained/inert mobile sheet, responsive viewport changes, explicit
   configuration Apply, device recheck, performance preference, complete local
   report actions, and a real compact summary.
+- Incorporated Safari review feedback: the advanced-settings summary now
+  explains the two default STUN discovery servers, the optional JSON field has
+  a valid greyed example plus a plain-language STUN/TURN explanation,
+  "automatic bandwidth" is now described as a bounded connection speed check,
+  and its stop control appears only while test traffic is active.
 - Corrected device evidence: separate browser/signaling/local/STUN/TURN tracks,
   srflx-only STUN success, relay-only TURN allocation, full in-memory
   `RTCIceServer` credentials at the RTC boundary, distinct candidate/stats

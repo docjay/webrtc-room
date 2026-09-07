@@ -3,7 +3,7 @@
 ## Current handoff - UX redesign implementation, 2026-09-07
 
 - **Branch:** `work/ux-redesign-plan`
-- **Implementation source commit:** `99d1471`
+- **Implementation source commit:** `aced61a`
 - **Starting/planning commit:** `1c62490`
 - **Worktree:**
   `/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`
@@ -12,6 +12,11 @@
   explicit, messaging becomes primary when a verified channel opens, and
   technical evidence remains available through an accessible responsive
   drawer and complete local report.
+- Safari review terminology is incorporated: advanced settings identify the
+  two default STUN discovery servers, show an optional valid STUN/TURN JSON
+  example and explain both server roles, while the bandwidth preference is
+  presented as a bounded connection speed check. The stop action is visible
+  only while that traffic is running.
 - `src/client/device-checks.ts` owns browser/signaling/local/endpoint check
   generations. `webrtc.ts` retains full credentials only at the browser RTC
   boundary. `components/` owns presentation-only room, drawer and compact
