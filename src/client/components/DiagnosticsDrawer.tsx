@@ -193,15 +193,15 @@ export function DiagnosticsDrawer({ open, model, callbacks, openerRef }: Diagnos
 
         <details className="diagnostic-group">
           <summary>
-            <span>Performance</span>
+            <span>Connection speed check</span>
             <small>{model.performance.status}</small>
           </summary>
           <div className="diagnostic-group__content">
             <p>
-              <strong>Preference:</strong> {model.performance.preference}
+              <strong>Automatic check:</strong> {model.performance.preference}
             </p>
             <p>
-              <strong>Traffic budget:</strong> {model.performance.budget}
+              <strong>Maximum traffic:</strong> {model.performance.budget}
             </p>
             <label className="preference-toggle">
               <input
@@ -211,9 +211,7 @@ export function DiagnosticsDrawer({ open, model, callbacks, openerRef }: Diagnos
                 }
                 type="checkbox"
               />
-              <span>
-                Automatically run the bounded bandwidth check after connection diagnostics
-              </span>
+              <span>Measure this connection automatically after the connection-path checks</span>
             </label>
             {model.performance.directions && (
               <ul className="check-list">
@@ -231,7 +229,7 @@ export function DiagnosticsDrawer({ open, model, callbacks, openerRef }: Diagnos
                 onClick={callbacks.onCancelPerformance}
                 type="button"
               >
-                Cancel performance
+                Stop speed check
               </button>
             )}
           </div>
@@ -244,14 +242,32 @@ export function DiagnosticsDrawer({ open, model, callbacks, openerRef }: Diagnos
           </summary>
           <div className="diagnostic-group__content">
             <label className="field">
-              <span>ICE server JSON</span>
+              <span>Optional STUN/TURN server JSON</span>
               <textarea
-                aria-describedby={model.advancedSettings.error ? 'ice-settings-error' : undefined}
+                aria-describedby={
+                  model.advancedSettings.error
+                    ? 'ice-settings-help ice-settings-error'
+                    : 'ice-settings-help'
+                }
                 onChange={(event) => callbacks.onAdvancedDraftChange(event.target.value)}
+                placeholder={`{
+  "iceServers": [
+    {
+      "urls": "turn:relay.example.com:3478?transport=udp",
+      "username": "your-username",
+      "credential": "your-password"
+    }
+  ]
+}`}
                 spellCheck={false}
                 value={model.advancedSettings.draft}
               />
             </label>
+            <p id="ice-settings-help">
+              Optional. STUN discovers public network addresses. TURN relays the connection when a
+              direct path is unavailable. Credentials stay in this tab and are excluded from
+              reports.
+            </p>
             {model.advancedSettings.error && (
               <p className="field-error" id="ice-settings-error" role="alert">
                 {model.advancedSettings.error}

@@ -194,13 +194,16 @@ function App() {
       const custom = draftIceText.trim()
         ? iceConfigSchema.parse(JSON.parse(draftIceText) as unknown)
         : { iceServers: [] };
-      return (
-        sanitizeIceConfig({
-          iceServers: [...defaults.map((urls) => ({ urls })), ...custom.iceServers],
-        })
-          .map((server) => `${server.kind} (${server.transports.join(', ')})`)
-          .join(', ') || 'Default checks only'
-      );
+      const customServers = sanitizeIceConfig(custom);
+      if (!customServers.length) return `${defaults.length} default STUN discovery servers`;
+      const customSummary = customServers
+        .map((server) =>
+          server.kind === 'turn'
+            ? `TURN relay over ${server.transports.join('/')}`
+            : `STUN discovery over ${server.transports.join('/')}`,
+        )
+        .join(', ');
+      return `${defaults.length} default STUN discovery servers + ${customSummary}`;
     } catch {
       return 'Fix the JSON before applying';
     }
@@ -687,7 +690,7 @@ function App() {
     record('matrix diagnostics complete', 'success');
   }
   async function runPerformance(channel: RTCDataChannel, host: boolean) {
-    setPerformance('Checking both participants’ bandwidth preference');
+    setPerformance('Confirming both participants allow the connection speed check');
     const protocol = new CoordinatedPerformance(
       channel,
       host,
@@ -705,7 +708,7 @@ function App() {
     activePerformance.current = null;
     protocol.dispose();
     if (result.cancelled) {
-      setPerformance('Performance check cancelled');
+      setPerformance('Connection speed check stopped');
       return;
     }
     if (result.skippedReason) {
@@ -823,7 +826,7 @@ function App() {
             ? invitation
               ? 'Join when ready. We will wait for the current device checks before using the room.'
               : 'You can choose Create or Join now. We will wait for the current device checks.'
-            : `Automatic bandwidth testing is ${automaticBandwidthEnabled ? 'enabled' : 'disabled'} before connection.`)),
+            : `The automatic connection speed check is ${automaticBandwidthEnabled ? 'on' : 'off'}. It runs only after connection-path checks finish.`)),
     ...(credentials
       ? {
           roomCode,
@@ -911,8 +914,8 @@ function App() {
             {
               id: 'bandwidth',
               label: automaticBandwidthEnabled
-                ? 'Automatic bandwidth: on'
-                : 'Automatic bandwidth: off',
+                ? 'Connection speed check: on'
+                : 'Connection speed check: off',
               tone: 'secondary',
               onClick: () => setAutomaticBandwidthEnabled((value) => !value),
             },
@@ -962,9 +965,9 @@ function App() {
     },
     performance: {
       preference: automaticBandwidthEnabled
-        ? 'Automatic bandwidth check enabled locally'
-        : 'Disabled locally before connection',
-      budget: 'Up to 16 MiB total and 5 seconds per direction',
+        ? 'On for this device; either participant can turn it off'
+        : 'Off for this device; no automatic speed traffic will run',
+      budget: 'Up to 16 MiB of temporary test data, at most 5 seconds in each direction',
       status: performance,
       automaticBandwidthEnabled,
       directions: performanceDirections.map((result) => ({
@@ -1054,10 +1057,14 @@ function App() {
           onCopyReport: () => void copyCompleteReport(),
           onDownloadReport: () => downloadReport(completeSnapshot()),
           onShowCompactReport: () => undefined,
-          onCancelPerformance: () => {
-            activePerformance.current?.cancel();
-            setPerformance('Cancellation requested');
-          },
+          ...(performance === 'Confirming both participants allow the connection speed check'
+            ? {
+                onCancelPerformance: () => {
+                  activePerformance.current?.cancel();
+                  setPerformance('Stopping connection speed check');
+                },
+              }
+            : {}),
         }}
       />
     </>

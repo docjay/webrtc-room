@@ -58,8 +58,8 @@ describe('coordinated performance protocol primitives', () => {
 
     const [hostResult, guestResult] = await Promise.all([host.run(), guest.run()]);
 
-    expect(hostResult.skippedReason).toMatch(/disabled by a participant/i);
-    expect(guestResult.skippedReason).toMatch(/disabled by a participant/i);
+    expect(hostResult.skippedReason).toMatch(/turned off by a participant/i);
+    expect(guestResult.skippedReason).toMatch(/turned off by a participant/i);
     expect(hostResult.directions).toEqual([]);
     expect(guestResult.directions).toEqual([]);
     host.dispose();

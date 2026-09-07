@@ -116,8 +116,8 @@ export class CoordinatedPerformance {
         cancelled: false,
         skippedReason:
           this.remotePreference === false || !this.automaticEnabled
-            ? 'Automatic bandwidth testing was disabled by a participant.'
-            : 'The other participant did not confirm automatic bandwidth testing.',
+            ? 'The automatic connection speed check was turned off by a participant.'
+            : 'The other participant did not confirm the automatic connection speed check.',
       };
     if (!this.host) return this.waitForCompletion();
     const rtts = await this.runRtt();

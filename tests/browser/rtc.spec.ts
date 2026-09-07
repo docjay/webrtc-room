@@ -47,7 +47,10 @@ test('automatic checks keep explicit intent pending and the mobile drawer access
   await capture(page, 'mobile-diagnostics-drawer');
 
   await page.getByText('Advanced network settings', { exact: true }).click();
-  await page.getByLabel('ICE server JSON').fill('{');
+  const serverJson = page.getByLabel('Optional STUN/TURN server JSON');
+  await expect(serverJson).toHaveAttribute('placeholder', /"iceServers"/);
+  await expect(page.getByText(/STUN discovers public network addresses/)).toBeVisible();
+  await serverJson.fill('{');
   await page.getByRole('button', { name: 'Apply settings' }).click();
   await expect(page.getByRole('alert')).toContainText(/JSON|property|position/i);
   await capture(page, 'mobile-settings-failure');
@@ -145,7 +148,7 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   expect(hostAttempt).toBe(guestAttempt);
 
   await openDiagnostics(host);
-  await host.getByText('Performance', { exact: true }).click();
+  await host.getByText('Connection speed check', { exact: true }).click();
   await expect(host.getByText(/Complete: RTT min\/median\/p95\/max/)).toBeVisible({
     timeout: 20_000,
   });
@@ -191,7 +194,7 @@ test('a guest-applied configuration starts a shared retry generation', async ({ 
 
   await openDiagnostics(guest);
   await guest.getByText('Advanced network settings', { exact: true }).click();
-  await guest.getByLabel('ICE server JSON').fill('{"iceServers":[]}');
+  await guest.getByLabel('Optional STUN/TURN server JSON').fill('{"iceServers":[]}');
   guest.once('dialog', (dialog) => void dialog.accept());
   await guest.getByRole('button', { name: 'Apply settings' }).click();
   await guest.getByRole('button', { name: 'Close diagnostics' }).click();
