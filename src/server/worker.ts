@@ -90,6 +90,8 @@ export function createWorker(deps: Dependencies = {}) {
           (production ? new ProductionIdentityAdapter() : new DevelopmentIdentityAdapter(true));
         if (request.method === 'GET' && url.pathname === '/api/health')
           return json({ ok: true, persistence: 'D1' });
+        if (request.method === 'GET' && url.pathname === '/api/session')
+          return json({ authenticated: Boolean(await identity.identity(request)) });
         if (request.method === 'POST' && url.pathname === '/api/rooms') {
           const parsed = z
             .object({})

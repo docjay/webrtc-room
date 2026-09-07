@@ -36,6 +36,19 @@ function Admin() {
     >([]),
     [filter, setFilter] = useState(''),
     [detail, setDetail] = useState<unknown>(null);
+  useEffect(() => {
+    if (local) return;
+    void fetch('/api/session')
+      .then((response) => response.json() as Promise<{ authenticated?: unknown }>)
+      .then((session) =>
+        setState(
+          session.authenticated
+            ? 'Signed in. Load attempts to verify owner access.'
+            : 'Signed out. Sign in with ChatGPT to access owner diagnostics.',
+        ),
+      )
+      .catch(() => setState('Unable to verify sign-in state.'));
+  }, [local]);
   const request = async (path: string) => {
     const headers = new Headers();
     if (identity && loopback()) headers.set('x-dev-identity', identity);

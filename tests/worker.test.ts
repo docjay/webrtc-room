@@ -70,6 +70,19 @@ describe('worker room integration', () => {
     expect(response.headers.get('content-type')).toContain('text/html');
   });
 
+  it('reports trusted production sign-in state without exposing the identity', async () => {
+    const DB = await sqliteD1(schema);
+    const worker = createWorker();
+    const response = await worker.fetch(
+      new Request('https://site.example/api/session', {
+        headers: { 'oai-authenticated-user-email': 'owner@example.test' },
+      }),
+      { DB, ENVIRONMENT: 'production' },
+      context,
+    );
+    expect(await response.json()).toEqual({ authenticated: true });
+  });
+
   it('requires matching manifest acknowledgements before allowing scoped signaling', async () => {
     const { request } = await fixture();
     const { host, guest, auth } = await credentials(request);
