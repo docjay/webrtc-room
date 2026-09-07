@@ -1,27 +1,59 @@
 # Copilot build handoff
 
-## Current handoff - UX planning, 2026-09-07
+## Current handoff - UX redesign implementation, 2026-09-07
 
-- Read `UX_REDESIGN_PLAN.md` and the current kickoff at the top of `KICKOFF.md`.
-  The user requested a plan now and a fresh Sol session to orchestrate
-  implementation; no implementation agents were launched in this session.
-- Planning branch: `work/ux-redesign-plan`.
-- Planning worktree:
-  `/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`.
-- Application source baseline: `4060f76` (unchanged by this documentation-only
-  milestone). Resolve the planning commit with
-  `git log -1 --format=%H -- UX_REDESIGN_PLAN.md`.
-- Updated `SPEC.md` supersedes the old manual-preflight-click UX: checks are
-  automatic, the room flow is primary, and detailed diagnostics are hidden in a
-  drawer by default. The plan covers the directly coupled probe correctness work.
-- Next integration owner: Sol medium, with bounded Terra-medium implementation
-  lanes and optional Luna closeout. Current planning session: Astra, no subagents
-  or exceptional escalation investigation. Do not infer a model switch.
-- No new runtime/browser, TURN, hosted identity, or deployment evidence was
-  produced for this plan. Existing owner verification and network limitations
-  below remain historical context, not resolved by a UX plan.
-- Preserve Workers/D1/Sites configuration and owner-only authorization. Local
-  implementation only; no publication or provisioning is authorized.
+- **Branch:** `work/ux-redesign-plan`
+- **Implementation source commit:** `99d1471`
+- **Starting/planning commit:** `1c62490`
+- **Worktree:**
+  `/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`
+- The room-first participant redesign is implemented locally. Diagnostics are
+  closed by default, checks start automatically, invitation intent remains
+  explicit, messaging becomes primary when a verified channel opens, and
+  technical evidence remains available through an accessible responsive
+  drawer and complete local report.
+- `src/client/device-checks.ts` owns browser/signaling/local/endpoint check
+  generations. `webrtc.ts` retains full credentials only at the browser RTC
+  boundary. `components/` owns presentation-only room, drawer and compact
+  report surfaces. `main.tsx` owns room intent, matrix/performance integration,
+  report/upload coordination and recovery. The existing Worker/D1/admin seams
+  remain intact.
+- Either room participant may request a retry using the current scoped room
+  credential. Repository issuance coalesces concurrent retry requests sharing
+  the same predecessor into one canonical generation; unrelated stale
+  predecessors still fail.
+- Automatic performance preference is synchronized over the selected ordered
+  channel. Either peer's opt-out prevents RTT/goodput traffic. The existing
+  production caps and cancellation behavior remain unchanged.
+- **Verification:** `npm run check` passed with formatting, strict TypeScript,
+  ESLint, 32 Vitest tests, client build, and Worker build. `npm run
+test:browser` passed 3 Chromium tests in 1.7 minutes using actual local
+  Worker signaling and RTC data channels: automatic checks and intent
+  withdrawal, responsive keyboard drawer behavior, 16/16 terminal matrix
+  rows, bidirectional chat, common attempt IDs, complete clipboard report,
+  bounded performance, compact summary, and guest-originated shared retry.
+- **Evidence:** screenshots outside Git are at
+  `/Users/renjay/.copilot/session-state/7dc1b6c4-cd09-4eb1-8e6f-0f8009517c38/files/ux-redesign-evidence/`.
+  Files cover mobile invitation/checking, mobile drawer, mobile validation
+  failure, desktop waiting, connected room, diagnostics drawer, and compact
+  report. They contain local ephemeral room/run/attempt references but no TURN
+  credentials or participant tokens.
+- **Models/delegation:** GPT-5.6 Sol medium owned contracts, integration, review,
+  validation and commits. Terra medium A implemented the check engine and
+  focused tests; Terra medium B implemented presentation components/styles;
+  Terra medium performed the bounded `main.tsx` integration. Sol fixed
+  cross-lane lifecycle/report/retry issues and completed acceptance evidence.
+  Astra was not used because no exceptional blocker arose.
+- **Remaining environment-dependent gaps:** no TURN credentials or external
+  second network were supplied, so relay UDP/TCP/TLS allocation/connectivity,
+  NAT traversal and different-network behavior remain unverified. Standard
+  browser ICE-TCP isolation remains unsupported/inconclusive. This local run
+  did not verify hosted owner identity or D1 behavior and made no deployment,
+  provisioning, billing, or hosted-configuration changes.
+- **Next hosting action:** Codex should reuse this source commit, preserve the
+  existing project/binding/auth configuration, rebuild, and run only the
+  platform identity/D1/deployment and credential/network-dependent checks once
+  deployment is explicitly authorized.
 
 The remaining sections describe the earlier build and hosting handoff.
 

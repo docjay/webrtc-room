@@ -1,19 +1,46 @@
-# Status - UX redesign planned, implementation pending
+# Status - room-first UX redesign implemented
 
 ## Current milestone - 2026-09-07
 
-- User approved a room-first flow, diagnostics drawer closed by default, and
-  automatic device checks with an in-app recheck.
-- `UX_REDESIGN_PLAN.md` records layout sketches, probe correctness fixes,
-  module/agent ownership, implementation order, and acceptance criteria.
-- `SPEC.md` now requires automatic checks instead of a mandatory button click.
-  `KICKOFF.md` contains the current fresh-session Sol implementation prompt.
-- No application code or hosted configuration changed in this planning milestone.
-  No new runtime/browser evidence is claimed. Source baseline: `4060f76`.
-- Next action: a fresh Sol-medium session implements the plan using bounded,
-  non-overlapping Terra lanes and one integration owner.
-- Planning session model: Astra; no subagents or escalation investigation used.
-  This does not change the intended Sol model for the implementation session.
+- Implemented the approved room-first participant flow at source commit
+  `99d1471`: automatic generation-safe device checks, explicit pending room
+  intent, invitation-first joining, waiting/connected/recovery states, primary
+  messaging, copy invitation, and coordinated participant-initiated retries.
+- Added a diagnostics drawer closed by default: non-modal desktop panel,
+  focus-contained/inert mobile sheet, responsive viewport changes, explicit
+  configuration Apply, device recheck, performance preference, complete local
+  report actions, and a real compact summary.
+- Corrected device evidence: separate browser/signaling/local/STUN/TURN tracks,
+  srflx-only STUN success, relay-only TURN allocation, full in-memory
+  `RTCIceServer` credentials at the RTC boundary, distinct candidate/stats
+  normalization, bounded concurrency/deadlines/cancellation, and stale
+  generation protection.
+- Preserved the full paired connectivity matrix and Workers/D1/Sites/auth
+  boundaries. Either participant can request one idempotent shared retry.
+  Automatic bandwidth traffic begins only after the matrix and is skipped when
+  either peer opts out.
+- `npm run check` passed: formatting, strict TypeScript, ESLint, 32
+  unit/integration tests in 7 files, client build, and Worker build.
+- `npm run test:browser` passed in Chromium: 3 tests in 1.7 minutes. It covered
+  automatic invitation checks and pending-intent withdrawal, 390px modal and
+  1440px non-modal drawer behavior with no horizontal overflow, actual
+  Worker-signaled two-context WebRTC, 16/16 terminal matrix rows, bidirectional
+  chat, synchronized report IDs/content, bounded performance, compact report,
+  and a guest-originated retry observed by both peers.
+- Screenshots are retained outside Git at
+  `/Users/renjay/.copilot/session-state/7dc1b6c4-cd09-4eb1-8e6f-0f8009517c38/files/ux-redesign-evidence/`.
+  They cover mobile invitation/checking, drawer and validation failure plus
+  desktop waiting, connected, drawer, and compact-report states.
+- Root/orchestration and integration review: GPT-5.6 Sol, medium. Terra medium A
+  implemented the check engine; Terra medium B implemented presentation;
+  Terra medium implemented bounded `main.tsx` integration. Sol integrated,
+  corrected retry/performance/report lifecycle issues, and ran final evidence.
+  Astra was not used; no blocker justified escalation.
+- Remaining verification gaps require supplied TURN credentials or external
+  network/device conditions: relay UDP/TCP/TLS allocation/connectivity, NAT
+  traversal, and real cross-network behavior. Local checks do not prove hosted
+  owner identity or D1 deployment behavior. No deployment or hosted
+  configuration change was made.
 
 ## Historical build and hosting notes
 
