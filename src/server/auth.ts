@@ -6,7 +6,13 @@ export class ProductionIdentityAdapter implements IdentityAdapter {
     // This header is injected by the Sites dispatcher after it has authenticated
     // the visitor. It is deliberately read only in the production adapter:
     // development keeps its loopback-only test seam below.
-    const identity = request.headers.get('oai-authenticated-user-id');
+    // Public Sites' Sign in with ChatGPT flow forwards the verified email
+    // identity. Workspace Sites may additionally provide the opaque user ID.
+    // Prefer the documented public-login identity and never accept a client
+    // supplied development header in this adapter.
+    const identity =
+      request.headers.get('oai-authenticated-user-email') ??
+      request.headers.get('oai-authenticated-user-id');
     return Promise.resolve(identity && identity.trim() ? identity : null);
   }
 }

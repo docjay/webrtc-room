@@ -214,6 +214,17 @@ describe('worker room integration', () => {
         )
       ).status,
     ).toBe(403);
+    expect(
+      (
+        await worker.fetch(
+          new Request('https://site.example/api/admin/attempts', {
+            headers: { 'oai-authenticated-user-email': 'owner@example.test' },
+          }),
+          { DB, ENVIRONMENT: 'production', OWNER_ID: 'owner@example.test' },
+          context,
+        )
+      ).status,
+    ).toBe(200);
     expect((await call('localhost', { ENVIRONMENT: 'production' }, 'owner')).status).toBe(403);
   });
 

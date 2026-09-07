@@ -27,6 +27,7 @@ const loopback = () => ['localhost', '127.0.0.1', '[::1]'].includes(location.hos
 
 function Admin() {
   const [identity, setIdentity] = useState('');
+  const local = loopback();
   const [state, setState] = useState(
       'Signed out: supply the explicitly configured local owner ID on loopback.',
     ),
@@ -64,14 +65,30 @@ function Admin() {
       </header>
       <section>
         <h2>Owner identity</h2>
-        <p>
-          Production authentication is platform-owned and fail-closed. This development header is
-          sent only for an explicitly entered identity on loopback.
-        </p>
-        <label>
-          Local owner ID{' '}
-          <input value={identity} onChange={(event) => setIdentity(event.target.value)} />
-        </label>
+        {local ? (
+          <>
+            <p>
+              Production authentication is platform-owned and fail-closed. This development header
+              is sent only for an explicitly entered identity on loopback.
+            </p>
+            <label>
+              Local owner ID{' '}
+              <input value={identity} onChange={(event) => setIdentity(event.target.value)} />
+            </label>
+          </>
+        ) : (
+          <p>
+            Sign in with ChatGPT to access owner diagnostics. Public room diagnostics do not require
+            sign-in.{' '}
+            <a href="/signin-with-chatgpt?return_to=/admin" target="_top">
+              Sign in with ChatGPT
+            </a>{' '}
+            ·{' '}
+            <a href="/signout-with-chatgpt?return_to=/admin" target="_top">
+              Sign out
+            </a>
+          </p>
+        )}
         <button onClick={() => void load()}>Load attempts</button>
       </section>
       <section>
