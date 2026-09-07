@@ -1,0 +1,13 @@
+CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS rooms (code TEXT PRIMARY KEY, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, host_id TEXT NOT NULL, guest_id TEXT, generation INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS participants (id TEXT PRIMARY KEY, room_code TEXT NOT NULL REFERENCES rooms(code), slot INTEGER NOT NULL CHECK(slot IN (1,2)), token_hash TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(room_code,slot));
+CREATE TABLE IF NOT EXISTS attempts (id TEXT PRIMARY KEY, room_code TEXT NOT NULL REFERENCES rooms(code), generation INTEGER NOT NULL, previous_id TEXT, manifest_json TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(room_code,generation));
+CREATE TABLE IF NOT EXISTS attempt_acks (attempt_id TEXT NOT NULL REFERENCES attempts(id), participant_id TEXT NOT NULL REFERENCES participants(id), manifest_json TEXT NOT NULL, acknowledged_at INTEGER NOT NULL, PRIMARY KEY(attempt_id,participant_id));
+CREATE TABLE IF NOT EXISTS room_capabilities (room_code TEXT NOT NULL REFERENCES rooms(code), participant_id TEXT NOT NULL REFERENCES participants(id), endpoints_json TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(room_code,participant_id));
+CREATE INDEX IF NOT EXISTS attempts_room_generation ON attempts(room_code,generation);
+CREATE TABLE IF NOT EXISTS signals (id INTEGER PRIMARY KEY AUTOINCREMENT, room_code TEXT NOT NULL, generation INTEGER NOT NULL, probe_id TEXT NOT NULL, sender_id TEXT NOT NULL, recipient_id TEXT NOT NULL, client_message_id TEXT NOT NULL, body TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, UNIQUE(sender_id,client_message_id));
+CREATE INDEX IF NOT EXISTS signals_poll ON signals(recipient_id,generation,probe_id,id);
+CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, participant_id TEXT NOT NULL, attempt_id TEXT, event_count INTEGER NOT NULL DEFAULT 0, event_bytes INTEGER NOT NULL DEFAULT 0, truncated_count INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS diagnostic_events (run_id TEXT NOT NULL REFERENCES runs(id), sequence INTEGER NOT NULL, body TEXT NOT NULL, received_at INTEGER NOT NULL, PRIMARY KEY(run_id,sequence));
+CREATE INDEX IF NOT EXISTS runs_updated ON runs(updated_at);
+INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (1, datetime('now'));

@@ -9,3 +9,6 @@ dist/
 .wrangler/
 .DS_Store
 *.log
+/.local-data/
+/artifacts/
+/test-results/

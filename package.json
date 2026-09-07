@@ -1,0 +1,46 @@
+{
+  "name": "webrtc-room",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "npm run build --silent && node scripts/dev.mjs",
+    "build": "tsc -p tsconfig.server.json && vite build && vite build --config vite.server.config.ts",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check package.json .prettierrc.json eslint.config.js tsconfig.json tsconfig.server.json vite.config.ts .openai/hosting.json src tests STATUS.md",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:browser": "playwright test",
+    "check": "npm run format:check && npm run typecheck && npm run lint && npm test && npm run build",
+    "migrate:local": "node scripts/migrate-local.mjs",
+    "reset:local": "node scripts/reset-local.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "6.1.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "vite": "8.2.2",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "26.4.1",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@types/sql.js": "1.4.11",
+    "eslint": "10.10.0",
+    "eslint-plugin-import-x": "4.17.1",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "prettier": "3.9.6",
+    "sql.js": "1.14.2",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.69.0",
+    "vitest": "5.0.0"
+  }
+}

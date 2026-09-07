@@ -1,0 +1,253 @@
+import { goodputMbps, percentile } from '../shared/domain.js';
+
+export const PERFORMANCE_DEFAULTS = {
+  pingCount: 20,
+  pingIntervalMs: 100,
+  pingTimeoutMs: 1_000,
+  maxDurationMs: 5_000,
+  maxDirectionBytes: 8 * 1024 * 1024,
+  maxTotalBytes: 16 * 1024 * 1024,
+  chunkBytes: 16 * 1024,
+  highWaterBytes: 256 * 1024,
+} as const;
+export type PerformanceLimits = {
+  pingCount: number;
+  pingIntervalMs: number;
+  pingTimeoutMs: number;
+  maxDurationMs: number;
+  maxDirectionBytes: number;
+  maxTotalBytes: number;
+  chunkBytes: number;
+  highWaterBytes: number;
+};
+export type DirectionResult = {
+  direction: 'a-to-b' | 'b-to-a';
+  bytes: number;
+  elapsedMs: number;
+  mbps?: number;
+  reason: string;
+};
+export type PerformanceResult = {
+  rtts: number[];
+  unanswered: number;
+  directions: DirectionResult[];
+  cancelled: boolean;
+};
+type Control =
+  | { perf: true; type: 'rtt-ping'; id: string }
+  | { perf: true; type: 'rtt-pong'; id: string }
+  | { perf: true; type: 'start'; direction: DirectionResult['direction'] }
+  | { perf: true; type: 'send'; direction: DirectionResult['direction'] }
+  | { perf: true; type: 'end'; direction: DirectionResult['direction']; reason: string }
+  | { perf: true; type: 'result'; result: DirectionResult }
+  | { perf: true; type: 'cancel' };
+
+function control(data: unknown): Control | undefined {
+  if (typeof data !== 'string') return undefined;
+  try {
+    const value = JSON.parse(data) as Record<string, unknown>;
+    return value.perf === true && typeof value.type === 'string' ? (value as Control) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+export function summarizeRtt(rtts: number[], unanswered: number) {
+  return {
+    min: rtts.length ? Math.min(...rtts) : undefined,
+    median: percentile(rtts, 0.5),
+    p95: percentile(rtts, 0.95),
+    max: rtts.length ? Math.max(...rtts) : undefined,
+    count: rtts.length,
+    unanswered,
+  };
+}
+export function receiverResult(
+  direction: DirectionResult['direction'],
+  bytes: number,
+  startedAt: number,
+  endedAt: number,
+  reason: string,
+): DirectionResult {
+  const elapsedMs = Math.max(0, endedAt - startedAt);
+  const mbps = goodputMbps(bytes, elapsedMs);
+  return { direction, bytes, elapsedMs, ...(mbps === undefined ? {} : { mbps }), reason };
+}
+
+export class CoordinatedPerformance {
+  private readonly limits: PerformanceLimits;
+  private readonly starts = new Map<string, number>();
+  private readonly rttReplies = new Map<string, number>();
+  private readonly receiver = new Map<
+    DirectionResult['direction'],
+    { bytes: number; startedAt: number }
+  >();
+  private readonly results = new Map<DirectionResult['direction'], DirectionResult>();
+  private cancelled = false;
+  private onResult: ((result: DirectionResult) => void) | undefined;
+  public constructor(
+    private readonly channel: RTCDataChannel,
+    private readonly host: boolean,
+    limits: Partial<PerformanceLimits> = {},
+    private readonly now = () => performance.now(),
+  ) {
+    this.limits = { ...PERFORMANCE_DEFAULTS, ...limits };
+    channel.bufferedAmountLowThreshold = this.limits.highWaterBytes / 2;
+    channel.addEventListener('message', this.onMessage);
+  }
+  dispose() {
+    this.channel.removeEventListener('message', this.onMessage);
+  }
+  cancel() {
+    this.cancelled = true;
+    this.send({ perf: true, type: 'cancel' });
+  }
+  async run(onResult?: (result: DirectionResult) => void): Promise<PerformanceResult> {
+    this.onResult = onResult;
+    if (!this.host) return this.waitForCompletion();
+    const rtts = await this.runRtt();
+    if (!this.cancelled) await this.runDirection('a-to-b');
+    if (!this.cancelled) await this.runDirection('b-to-a');
+    return {
+      rtts,
+      unanswered: this.limits.pingCount - rtts.length,
+      directions: (['a-to-b', 'b-to-a'] as const).flatMap((key) => {
+        const result = this.results.get(key);
+        return result ? [result] : [];
+      }),
+      cancelled: this.cancelled,
+    };
+  }
+  private readonly onMessage = (event: MessageEvent) => {
+    const message = control(event.data);
+    if (!message) {
+      if (event.data instanceof ArrayBuffer || ArrayBuffer.isView(event.data)) {
+        for (const receiver of this.receiver.values()) receiver.bytes += event.data.byteLength;
+      }
+      return;
+    }
+    if (message.type === 'rtt-ping') this.send({ perf: true, type: 'rtt-pong', id: message.id });
+    else if (message.type === 'rtt-pong') {
+      const startedAt = this.starts.get(message.id);
+      if (startedAt !== undefined) this.rttReplies.set(message.id, this.now() - startedAt);
+    } else if (message.type === 'start')
+      this.receiver.set(message.direction, {
+        bytes: 0,
+        startedAt: this.now(),
+      });
+    else if (message.type === 'send') void this.sendDirection(message.direction);
+    else if (message.type === 'end') {
+      const direction = message.direction;
+      const measured = this.receiver.get(direction);
+      if (measured) {
+        const result = receiverResult(
+          direction,
+          measured.bytes,
+          measured.startedAt,
+          this.now(),
+          message.reason,
+        );
+        this.receiver.delete(direction);
+        this.results.set(direction, result);
+        this.onResult?.(result);
+        this.send({ perf: true, type: 'result', result });
+      }
+    } else if (message.type === 'result') {
+      this.results.set(message.result.direction, message.result);
+      this.onResult?.(message.result);
+      if (this.host) this.send(message);
+    } else if (message.type === 'cancel') this.cancelled = true;
+  };
+  private send(message: Control) {
+    if (this.channel.readyState === 'open') this.channel.send(JSON.stringify(message));
+  }
+  private async runRtt() {
+    const ids: string[] = [];
+    for (let index = 0; index < this.limits.pingCount && !this.cancelled; index++) {
+      const id = `${index}-${crypto.randomUUID()}`;
+      ids.push(id);
+      this.starts.set(id, this.now());
+      this.send({ perf: true, type: 'rtt-ping', id });
+      if (index + 1 < this.limits.pingCount) await this.sleep(this.limits.pingIntervalMs);
+    }
+    const replyDeadline = this.now() + this.limits.pingTimeoutMs;
+    while (
+      !this.cancelled &&
+      ids.some((id) => !this.rttReplies.has(id)) &&
+      this.now() < replyDeadline
+    )
+      await this.sleep(20);
+    const received = ids.flatMap((id) => {
+      const rtt = this.rttReplies.get(id);
+      this.starts.delete(id);
+      this.rttReplies.delete(id);
+      return rtt === undefined ? [] : [rtt];
+    });
+    return received;
+  }
+  private async runDirection(direction: DirectionResult['direction']) {
+    if (direction === 'a-to-b') {
+      this.send({ perf: true, type: 'start', direction });
+      await this.sendDirection(direction);
+    } else {
+      this.receiver.set(direction, { bytes: 0, startedAt: this.now() });
+      this.send({ perf: true, type: 'send', direction });
+    }
+    const deadline = this.now() + this.limits.maxDurationMs + 2_000;
+    while (!this.cancelled && !this.results.has(direction) && this.now() < deadline)
+      await this.sleep(20);
+    if (!this.results.has(direction) && !this.cancelled)
+      this.results.set(direction, {
+        direction,
+        bytes: 0,
+        elapsedMs: 0,
+        reason: 'receiver result timeout',
+      });
+  }
+  private async sendDirection(direction: DirectionResult['direction']) {
+    const startedAt = this.now();
+    let sent = 0;
+    let reason = 'byte cap';
+    const chunk = new Uint8Array(this.limits.chunkBytes);
+    while (
+      !this.cancelled &&
+      sent + chunk.byteLength <= this.limits.maxDirectionBytes &&
+      sent + chunk.byteLength <= this.limits.maxTotalBytes &&
+      this.now() - startedAt < this.limits.maxDurationMs
+    ) {
+      await this.drain();
+      if (this.cancelled || this.channel.readyState !== 'open') {
+        reason = 'cancelled or channel closed';
+        break;
+      }
+      this.channel.send(chunk);
+      sent += chunk.byteLength;
+      if (this.now() - startedAt >= this.limits.maxDurationMs) reason = 'duration cap';
+    }
+    if (this.cancelled) reason = 'cancelled';
+    this.send({ perf: true, type: 'end', direction, reason });
+  }
+  private drain() {
+    if (this.channel.bufferedAmount <= this.limits.highWaterBytes) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        window.clearTimeout(timer);
+        this.channel.removeEventListener('bufferedamountlow', done);
+        resolve();
+      };
+      const timer = window.setTimeout(done, 200);
+      this.channel.addEventListener('bufferedamountlow', done, { once: true });
+    });
+  }
+  private async waitForCompletion(): Promise<PerformanceResult> {
+    while (!this.cancelled && this.results.size < 2) await this.sleep(50);
+    return {
+      rtts: [],
+      unanswered: 0,
+      directions: [...this.results.values()],
+      cancelled: this.cancelled,
+    };
+  }
+  private sleep(ms: number) {
+    return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+  }
+}

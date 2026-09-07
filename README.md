@@ -1,25 +1,15 @@
-# WebRTC Room
+# WebRTC Room diagnostics
 
-Local project preparation for a two-device WebRTC app hosted with Sites.
+A local WebRTC data-channel diagnostic foundation. Run `npm install`, `npm run dev`, then open the printed localhost URL. Run preflight on each device before creating/joining a room. Default Azure and Google STUN checks are independent; completed probes unlock valid room controls even when network endpoints time out.
 
-## Intended first version
+## Commands
 
-- One device creates a room and receives a room code.
-- A second device joins with that code.
-- Sites HTTP endpoints and D1 exchange connection offers, answers, and ICE candidates.
-- A WebRTC data channel carries messages after connection.
-- Rooms expire and admit at most two participants.
-- An external TURN service provides relay coverage where direct connections fail.
+- `npm run check` — formatting, strict TypeScript, lint, unit/integration tests, and production browser/Worker builds.
+- `npm run test:browser` — Playwright Chromium UI and actual local `RTCPeerConnection` smoke scenarios.
+- `npm run migrate:local` / `npm run reset:local` — create/reset the gitignored `.local-data/webrtc-room.sqlite` SQLite adapter used by the local Worker server. It implements the D1 repository interface for development only; production remains Worker D1.
 
-## Current status
+`dist/client/` contains browser assets and `dist/server/index.js` is the Worker entrypoint. Production remains a Worker `fetch` handler backed by D1. Configure `DB`, `OWNER_ID`, and `ENVIRONMENT=production` only through hosting; no credentials belong in source. `x-dev-identity` is loopback development/test-only and production fails closed.
 
-The local Git repository is initialized. The implementation plan is in [SPEC.md](SPEC.md); model routing, efficient-execution policy, and contributor instructions are in [AGENTS.md](AGENTS.md). Copilot build and later Codex hosting prompts are in [KICKOFF.md](KICKOFF.md); the runtime contract and transfer checklist are in [BUILD_HANDOFF.md](BUILD_HANDOFF.md). Application code, dependencies, hosting registration, and deployment have not been created yet. There is no GitHub remote.
+## Evidence limits
 
-## Next implementation steps
-
-1. Copilot builds and tests the complete app locally, preserving Workers/D1 compatibility.
-2. Copilot commits the implementation and writes HANDOFF.md with test evidence and remaining platform-specific work.
-3. Codex reuses that implementation, finishes Sites/auth integration, and prepares deployment.
-4. Publish to the agreed audience and verify hosted two-device behavior, including TURN when credentials are available.
-
-Keep service credentials out of Git; configure production secrets through Sites.
+Local browser smoke evidence is not NAT traversal, TURN, external STUN reachability, hosted D1, or platform-owner verification. Standard browser APIs cannot guarantee forced ICE-TCP or a specific candidate pair; those profiles are shown as unsupported/inconclusive rather than passed.

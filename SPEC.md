@@ -14,7 +14,19 @@ Build a two-device WebRTC data-channel demo with diagnostics before, during, and
 - TURN is unconfigured initially. Each device may paste a JSON string with an `iceServers` array using standard `urls`, `username`, and `credential` fields. Support TURN UDP, optional plain TCP, and TLS over TCP. Example:
 
 ```json
-{"iceServers":[{"urls":["turn:relay.example.com:3478?transport=udp","turn:relay.example.com:3478?transport=tcp","turns:relay.example.com:443?transport=tcp"],"username":"user","credential":"password"}]}
+{
+  "iceServers": [
+    {
+      "urls": [
+        "turn:relay.example.com:3478?transport=udp",
+        "turn:relay.example.com:3478?transport=tcp",
+        "turns:relay.example.com:443?transport=tcp"
+      ],
+      "username": "user",
+      "credential": "password"
+    }
+  ]
+}
 ```
 
 - TURN input augments configured STUN defaults. Validate schemes, ports, length, and structure; show a sanitized preview. Keep credentials in browser memory only, never in URLs, database records, exports, or browser persistent storage. Each device configures its own credentials.
