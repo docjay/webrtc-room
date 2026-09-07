@@ -22,6 +22,18 @@ Build a two-device WebRTC data-channel demo with diagnostics before, during, and
 - Connection modes: automatic (all configured candidates) and relay-only. Individual TURN transport probes isolate each URL. End-to-end relay-only tests require relay configuration on both devices.
 - Display direct UDP, observed ICE-TCP, TURN UDP/TCP/TLS evidence separately. Candidate `protocol` and TURN `relayProtocol` represent different hops. Preserve raw supported fields; label unavailable fields rather than guessing.
 
+## Diagnostic start and alternative paths (proposed refinement)
+
+- Page load performs passive browser/API/secure-context checks and initializes the local report only. Active STUN/TURN probing begins with Run diagnostics, Create room, or Join room. Create/join reuses recent preflight results only when configuration/network context is unchanged; preflight results are advisory, not guaranteed reachability. No bandwidth traffic runs on page load.
+- After connection, run the bounded active-path performance probe already specified. Expose Test alternative paths as a separate user action after that probe finishes.
+- ICE selects nominated viable pairs using candidate priorities and connectivity checks. It is not an exhaustive bandwidth benchmark. Browser-native selection does not guarantee the product's preferred transport order, and there is no portable arbitrary candidate-priority setter.
+- Product requirement: a working preferred UDP path must not be displaced by direct ICE-TCP simply because the TCP candidate connected first. Proposed strategy is bounded staged negotiation with direct ICE-TCP reserved for fallback. Exact ordering between direct TCP and TURN TCP/TLS remains a product choice; implementation must validate candidate-policy enforcement across supported browsers before claiming strict ordering. Do not silently fall back to native selection while advertising a strict policy, or rewrite candidate priorities as a substitute for a tested implementation.
+- Alternative tests use separate temporary peer connections, unique probe IDs associated with the shared attempt, isolated signaling, constrained endpoint/candidate policies, and sequential execution. Keep the primary connection open; avoid simultaneous bandwidth probes. Additional probes can still consume shared network capacity, so do not claim zero impact.
+- Matrix rows cover direct UDP, direct ICE-TCP when testable, and TURN UDP/TCP/TLS when configured. Show candidate gathered, ICE check succeeded, data channel verified, selected for main connection, failed/timed out, not configured, not tested, or unsupported/inconclusive distinctly. Preserve the precise endpoints/path actually tested; do not claim every interface/address combination was tested.
+- A successful alternate test requires its actual selected pair to match the requested route and a data-channel ping exchange to succeed. A relay allocation alone is insufficient. Candidate-pair stats may expose other successful ICE checks but cannot establish that every alternative works.
+- Alternative connectivity tests collect setup duration and RTT. Per-alternative bandwidth tests require a separate explicit action and have the same per-run budget. Do not automatically migrate the live session to a measured alternative in this version.
+- Add acceptance tests for active probes not running on page load, independent cancellation, isolated probe signaling/IDs, constrained-path verification, no simultaneous throughput tests, and no false successful-path labels when browser fields are unavailable.
+
 ## Product surfaces
 
 1. Room create/join controls, code/link, two participant slots, attempt ID, connection status, and leave/retry actions.
