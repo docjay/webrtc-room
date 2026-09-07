@@ -1,6 +1,48 @@
-# Prompts for the two phases
+# Current kickoff and historical build prompts
 
-## Start in Copilot now
+## Current: UX redesign in a fresh Copilot session
+
+Select **gpt-5.6-sol**, **medium reasoning**, in the actual new session's model
+selector. Open the repository containing this planning commit. No factory is
+requested; use bounded subagents with one integration owner.
+
+> Implement the approved UX redesign in UX_REDESIGN_PLAN.md and the updated
+> SPEC.md. Read AGENTS.md, BUILD_HANDOFF.md, STATUS.md and HANDOFF.md first.
+> This is an incremental redesign of the existing application, not a new scaffold.
+> Begin implementation without repeating design approval.
+>
+> Make the room flow primary, automatically check each device, and put diagnostic
+> depth in a drawer closed by default (desktop sidebar/mobile sheet). Correct
+> preflight evidence and TURN credential handling before wiring automatic checks.
+> Preserve full two-device matrix coverage, truthful transport limitations,
+> scoped signaling/attempt generations, report privacy/redaction and fail-closed
+> owner authorization. Keep the existing Workers/D1/Sites integration intact.
+>
+> Sol medium owns contracts, integration and final review. Start with at most two
+> useful independent lanes: Terra medium for the check engine and its focused
+> tests; Terra medium for new presentation components/styles and bounded UI tests.
+> Keep main.tsx and shared integration contracts under one owner; hand off later
+> bounded integration implementation to Terra rather than duplicating it. Use
+> Luna medium only for narrow closeout work when useful. Reserve Astra for a
+> documented exceptional blocker. Record actual assignments and outcomes.
+>
+> Follow the plan's acceptance checklist, including automatic invitation checks,
+> explicit room intent, safe recheck/config Apply, keyboard/mobile drawer behavior,
+> copy invitation, primary messaging, complete local reports/compact summary,
+> bandwidth preference, and honest STUN/TURN/UDP/TCP evidence. Use existing tests
+> and actual local browser/network evidence; do not replace real RTC assertions
+> with fixtures or claim external paths passed without the required environment.
+>
+> Work locally in a topic worktree according to Git hooks. No deployment,
+> provisioning, remote creation, billing change, or factory is authorized.
+> Preserve existing changes and hosted configuration. Keep STATUS.md current,
+> commit coherent milestones, and finish with HANDOFF.md recording the exact
+> commit/branch/worktree, actual evidence locations and unavoidable limitations.
+> Historical build/deployment notes are context, not proof of current behavior.
+
+## Historical: original local build
+
+### Original Copilot build prompt
 
 Open this repository in Copilot and select **Sol** as orchestrator, with **medium reasoning** where supported. Terra, Sol, Astra and Luna are available in this subscription; use the roles below. Settings are controlled by Copilot, not by this document.
 
@@ -12,7 +54,7 @@ Open this repository in Copilot and select **Sol** as orchestrator, with **mediu
 >
 > Keep everything local. Follow the repository's worktree/commit hooks, maintain STATUS.md, commit coherent changes, and finish with an evidence-backed HANDOFF.md following BUILD_HANDOFF.md. Clearly distinguish actual tests from simulations and list only unavoidable platform/credential/network work for Codex. Continue without repeating planning approval unless a material unresolved product decision requires it.
 
-## Return to Codex later
+## Historical: Codex hosting handoff
 
 Select Terra, medium reasoning, standard speed where available. Open the same repository and use:
 

@@ -1,4 +1,24 @@
-# Status — Sites integration configured, unpublished
+# Status - UX redesign planned, implementation pending
+
+## Current milestone - 2026-09-07
+
+- User approved a room-first flow, diagnostics drawer closed by default, and
+  automatic device checks with an in-app recheck.
+- `UX_REDESIGN_PLAN.md` records layout sketches, probe correctness fixes,
+  module/agent ownership, implementation order, and acceptance criteria.
+- `SPEC.md` now requires automatic checks instead of a mandatory button click.
+  `KICKOFF.md` contains the current fresh-session Sol implementation prompt.
+- No application code or hosted configuration changed in this planning milestone.
+  No new runtime/browser evidence is claimed. Source baseline: `4060f76`.
+- Next action: a fresh Sol-medium session implements the plan using bounded,
+  non-overlapping Terra lanes and one integration owner.
+- Planning session model: Astra; no subagents or escalation investigation used.
+  This does not change the intended Sol model for the implementation session.
+
+## Historical build and hosting notes
+
+The following entries predate the UX plan. Their deployment state and evidence
+must be read with their dates; they are not current UX implementation results.
 
 **Orchestration:** gpt-5.6-sol, medium. Terra medium implemented the bounded
 foundation, application, protocol, and reviewed-defect slices. Luna medium ran

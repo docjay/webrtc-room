@@ -1,5 +1,30 @@
 # Copilot build handoff
 
+## Current handoff - UX planning, 2026-09-07
+
+- Read `UX_REDESIGN_PLAN.md` and the current kickoff at the top of `KICKOFF.md`.
+  The user requested a plan now and a fresh Sol session to orchestrate
+  implementation; no implementation agents were launched in this session.
+- Planning branch: `work/ux-redesign-plan`.
+- Planning worktree:
+  `/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`.
+- Application source baseline: `4060f76` (unchanged by this documentation-only
+  milestone). Resolve the planning commit with
+  `git log -1 --format=%H -- UX_REDESIGN_PLAN.md`.
+- Updated `SPEC.md` supersedes the old manual-preflight-click UX: checks are
+  automatic, the room flow is primary, and detailed diagnostics are hidden in a
+  drawer by default. The plan covers the directly coupled probe correctness work.
+- Next integration owner: Sol medium, with bounded Terra-medium implementation
+  lanes and optional Luna closeout. Current planning session: Astra, no subagents
+  or exceptional escalation investigation. Do not infer a model switch.
+- No new runtime/browser, TURN, hosted identity, or deployment evidence was
+  produced for this plan. Existing owner verification and network limitations
+  below remain historical context, not resolved by a UX plan.
+- Preserve Workers/D1/Sites configuration and owner-only authorization. Local
+  implementation only; no publication or provisioning is authorized.
+
+The remaining sections describe the earlier build and hosting handoff.
+
 ## Source and scope
 
 - **Branch:** `work/copilot-build-handoff`
