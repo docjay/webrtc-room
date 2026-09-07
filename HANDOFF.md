@@ -3,7 +3,7 @@
 ## Current handoff - UX redesign implementation, 2026-09-07
 
 - **Branch:** `work/ux-redesign-plan`
-- **Implementation source commit:** `aced61a`
+- **Implementation source commit:** `0597199`
 - **Starting/planning commit:** `1c62490`
 - **Worktree:**
   `/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`
@@ -29,9 +29,17 @@
   predecessors still fail.
 - Automatic performance preference is synchronized over the selected ordered
   channel. Either peer's opt-out prevents RTT/goodput traffic. The existing
-  production caps and cancellation behavior remain unchanged.
+  production caps and cancellation behavior remain unchanged. The host's RTT
+  samples are synchronized to the guest report so both views describe the same
+  measurement.
+- Paired probes now signal only candidates matching the requested profile.
+  Local Chromium produced six STUN-assisted passes with selected
+  `srflx`/`prflx` evidence. Two one-sided STUN rows still selected the
+  STUN-requesting peer's own host candidate and remain inconclusive; standard
+  WebRTC exposes no policy for excluding local host candidates while retaining
+  srflx candidates. Direct ICE-TCP remains unsupported rather than simulated.
 - **Verification:** `npm run check` passed with formatting, strict TypeScript,
-  ESLint, 32 Vitest tests, client build, and Worker build. `npm run
+  ESLint, 34 Vitest tests, client build, and Worker build. `npm run
 test:browser` passed 3 Chromium tests in 1.7 minutes using actual local
   Worker signaling and RTC data channels: automatic checks and intent
   withdrawal, responsive keyboard drawer behavior, 16/16 terminal matrix

@@ -3,7 +3,7 @@
 ## Current milestone - 2026-09-07
 
 - Implemented the approved room-first participant flow through source commit
-  `aced61a`: automatic generation-safe device checks, explicit pending room
+  `0597199`: automatic generation-safe device checks, explicit pending room
   intent, invitation-first joining, waiting/connected/recovery states, primary
   messaging, copy invitation, and coordinated participant-initiated retries.
 - Added a diagnostics drawer closed by default: non-modal desktop panel,
@@ -20,11 +20,17 @@
   `RTCIceServer` credentials at the RTC boundary, distinct candidate/stats
   normalization, bounded concurrency/deadlines/cancellation, and stale
   generation protection.
+- Follow-up paired-path evidence now filters signaled candidates to the
+  requested host/STUN/TURN class. In the local Chromium run, six STUN-assisted
+  rows passed with selected `srflx`/`prflx` evidence; two one-sided rows remained
+  honestly inconclusive because the browser selected its own local host
+  candidate, which standard WebRTC cannot exclude. Guest reports now receive
+  the host-measured RTT summary instead of displaying a misleading `0/20`.
 - Preserved the full paired connectivity matrix and Workers/D1/Sites/auth
   boundaries. Either participant can request one idempotent shared retry.
   Automatic bandwidth traffic begins only after the matrix and is skipped when
   either peer opts out.
-- `npm run check` passed: formatting, strict TypeScript, ESLint, 32
+- `npm run check` passed: formatting, strict TypeScript, ESLint, 34
   unit/integration tests in 7 files, client build, and Worker build.
 - `npm run test:browser` passed in Chromium: 3 tests in 1.7 minutes. It covered
   automatic invitation checks and pending-intent withdrawal, 390px modal and
