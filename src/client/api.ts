@@ -52,7 +52,9 @@ export class ApiClient {
     headers.set('content-type', 'application/json');
     if (credentials)
       headers.set('authorization', `Bearer ${credentials.participantId}.${credentials.writeToken}`);
-    const response = await fetch(`${this.base}${path}`, { ...init, headers });
+    const timeout = AbortSignal.timeout(10_000);
+    const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+    const response = await fetch(`${this.base}${path}`, { ...init, headers, signal });
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok)
       throw new Error(
