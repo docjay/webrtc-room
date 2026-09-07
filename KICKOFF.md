@@ -2,13 +2,13 @@
 
 ## Start in Copilot now
 
-Open this repository in Copilot. Choose an appropriate model available in your subscription; Codex model names/settings are not prerequisites.
+Open this repository in Copilot and select **Sol** as orchestrator, with **medium reasoning** where supported. Terra, Sol, Astra and Luna are available in this subscription; use the roles below. Settings are controlled by Copilot, not by this document.
 
 > Build the complete local WebRTC diagnostic app specified in SPEC.md. Read AGENTS.md and BUILD_HANDOFF.md first, and follow .github/copilot-instructions.md. You are the primary local builder; do as much implementation and validation as possible in Copilot before handing back to Codex for Sites integration and deployment.
 >
 > Start with a browser-tested feasibility slice for transport isolation, concurrent signaling and selected-path verification, then complete the UI, backend, real local persistence, diagnostics, connectivity matrix, performance probes, owner authorization logic and review UI. Establish and run static-analysis guardrails plus meaningful unit, database integration and browser tests. Preserve the Sites/Cloudflare Workers and D1 compatibility contract. Do not stop at a scaffold, frontend mock or plan because Sites tools are unavailable. Test authentication locally through a safe development/test adapter; keep production fail-closed and document the real ChatGPT identity wiring needed later.
 >
-> There are no session/token budget constraints. Use subscription-available models judiciously and delegate only bounded useful tasks. Do not require unavailable Terra/Luna/Sol/Astra models or switch billing to obtain them. No paid-service provisioning or deployment is authorized.
+> There are no session/token budget constraints. Use Sol for orchestration, module contracts, integration and review; Terra for most bounded implementation and tests; Luna for narrow mechanical tasks; Astra only for justified difficult blockers. Delegate concise non-overlapping work and avoid duplicate implementation or blanket reviews. Choose reasoning effort judiciously; do not assume Copilot billing matches Codex or switch billing. No paid-service provisioning or deployment is authorized.
 >
 > Keep everything local. Follow the repository's worktree/commit hooks, maintain STATUS.md, commit coherent changes, and finish with an evidence-backed HANDOFF.md following BUILD_HANDOFF.md. Clearly distinguish actual tests from simulations and list only unavoidable platform/credential/network work for Codex. Continue without repeating planning approval unless a material unresolved product decision requires it.
 
