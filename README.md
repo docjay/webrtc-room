@@ -13,13 +13,13 @@ Local project preparation for a two-device WebRTC app hosted with Sites.
 
 ## Current status
 
-The local Git repository is initialized. The implementation plan is in [SPEC.md](SPEC.md); model routing, efficient-execution policy, and contributor instructions are in [AGENTS.md](AGENTS.md). The implementation prompt is in [KICKOFF.md](KICKOFF.md). Application code, dependencies, hosting registration, and deployment have not been created yet. There is no GitHub remote.
+The local Git repository is initialized. The implementation plan is in [SPEC.md](SPEC.md); model routing, efficient-execution policy, and contributor instructions are in [AGENTS.md](AGENTS.md). Copilot build and later Codex hosting prompts are in [KICKOFF.md](KICKOFF.md); the runtime contract and transfer checklist are in [BUILD_HANDOFF.md](BUILD_HANDOFF.md). Application code, dependencies, hosting registration, and deployment have not been created yet. There is no GitHub remote.
 
 ## Next implementation steps
 
-1. Scaffold the Sites app with D1 support.
-2. Implement room creation, joining, signaling, and a minimal data-channel demo.
-3. Validate locally, then deploy and verify with two devices.
-4. Configure TURN for reliable connections across restrictive networks.
+1. Copilot builds and tests the complete app locally, preserving Workers/D1 compatibility.
+2. Copilot commits the implementation and writes HANDOFF.md with test evidence and remaining platform-specific work.
+3. Codex reuses that implementation, finishes Sites/auth integration, and prepares deployment.
+4. Publish to the agreed audience and verify hosted two-device behavior, including TURN when credentials are available.
 
 Keep service credentials out of Git; configure production secrets through Sites.

@@ -1,6 +1,6 @@
 # WebRTC Room: implementation specification
 
-Status: proposed implementation plan, prepared for user review. No application implementation or deployment is authorized by this document alone.
+Status: implementation specification. Primary implementation runs locally in Copilot; Sites integration and deployment return to Codex. A kickoff request authorizes local implementation. This document alone does not authorize publication.
 
 ## Purpose and scope
 
@@ -112,7 +112,7 @@ Tell participants succinctly that connection diagnostics are saved for the owner
 
 ## Component boundaries and guardrails
 
-Use the Sites starter with TypeScript, D1 and auth support, preserving starter conventions. Keep:
+Target the Sites-compatible TypeScript/Workers stack described in BUILD_HANDOFF.md. Copilot should reuse an available Sites starter locally with D1 and auth support, preserving conventions; if platform-specific tooling is unavailable, implement the same runtime boundaries and all independent product work without inventing platform integrations. Keep:
 
 - UI components: RoomControls, IceConfiguration, PreflightResults, ConnectionStatus, CandidateTable, DiagnosticTimeline, PerformancePanel, ReportExport, OwnerAttemptList/Detail.
 - Domain modules: lifecycle reducer, IDs, message/event schemas, candidate/stats normalization, failure classification, timing, redaction, performance calculations.
@@ -137,15 +137,15 @@ Release acceptance: demo works; all three diagnostic phases are usable; performa
 
 ## Implementation sequence and delegation
 
-Model routing and efficient-execution policy are maintained in AGENTS.md: Terra orchestrates by default, Luna handles narrow tasks, Sol handles targeted escalations/reviews, and Astra is reserved for justified exceptional escalations. There are no user-imposed session/token budgets or allowance checkpoints. Complete the full scope and validation while avoiding unnecessary model expense and duplicated work. Purchases, billing changes, reset redemption, and paid external-service provisioning still require user authorization. KICKOFF.md contains the implementation prompt. These agent-usage changes do not alter application safety limits such as probe traffic caps, timeouts, log bounds, and retention.
+Model routing and efficient-execution policy are maintained in AGENTS.md. Copilot performs the local build using appropriate subscription-available models; Codex model names are not requirements for Copilot. When work returns to Codex, Terra orchestrates by default, Luna handles narrow tasks, Sol handles targeted escalations/reviews, and Astra is reserved for justified exceptional escalations. There are no user-imposed session/token budgets or allowance checkpoints. Complete the full scope and validation while avoiding unnecessary model expense and duplicated work. Purchases, billing changes, reset redemption, and paid external-service provisioning still require user authorization. KICKOFF.md contains separate Copilot build and Codex hosting prompts; BUILD_HANDOFF.md defines the boundary and required handoff evidence. These agent-usage changes do not alter application safety limits such as probe traffic caps, timeouts, log bounds, and retention.
 
-1. Root orchestrator owns Sites lifecycle, scaffolding, checkout edits, integration, source/version/deployment operations, and final validation. First settle this spec with the user.
+1. Copilot owns local scaffolding, source implementation, integration and available validation. Preserve the accepted scope and resolve only material remaining decisions. Codex later owns the actual Sites lifecycle and hosting operations.
 2. Establish module contracts, schemas, static checks and test harness; then implement room/signaling and a minimal data-channel path.
 3. Add diagnostics/preflight/export and persistent owner-authorized reports.
 4. Add RTT/goodput probes and failure/reconnection handling.
-5. Complete automated checks, browser tests, and available network acceptance before deployment handoff.
+5. Copilot completes automated checks, browser tests and available network acceptance, then writes an evidence-backed HANDOFF.md per BUILD_HANDOFF.md. Codex verifies the handoff, finishes platform-specific integration, checks the hosted runtime, and deploys only within the user-authorized access scope.
 
-Use Terra mostly for bounded architecture/protocol/security reviews and patch proposals; Luna for focused fixtures/test-case reviews; Sol for difficult cross-module debugging or independent final review when needed. Sites skill constraints reserve Site checkout edits and all Sites tools to the root owner: subagents return reviews/proposed patches for root integration rather than concurrently editing the Site or deploying. The orchestrator remains responsible for evidence and does not accept passing mocks as proof of real networking.
+Use the model roles in AGENTS.md for the current provider. Copilot should perform as much local work as possible and must not require unavailable Codex tools. During the later Codex Sites phase, Sites skill constraints reserve Site checkout edits and all Sites tools to the root owner: subagents return reviews/proposed patches for root integration rather than concurrently editing the Site or deploying. The orchestrator remains responsible for evidence and does not accept passing mocks as proof of real networking.
 
 ## Sources
 
