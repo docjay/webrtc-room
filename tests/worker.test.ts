@@ -192,6 +192,28 @@ describe('worker room integration', () => {
     expect(
       (await call('localhost', { ENVIRONMENT: 'production', OWNER_ID: 'owner' }, 'owner')).status,
     ).toBe(403);
+    expect(
+      (
+        await worker.fetch(
+          new Request('https://site.example/api/admin/attempts', {
+            headers: { 'oai-authenticated-user-id': 'owner' },
+          }),
+          { DB, ENVIRONMENT: 'production', OWNER_ID: 'owner' },
+          context,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await worker.fetch(
+          new Request('https://site.example/api/admin/export', {
+            headers: { 'oai-authenticated-user-id': 'not-owner' },
+          }),
+          { DB, ENVIRONMENT: 'production', OWNER_ID: 'owner' },
+          context,
+        )
+      ).status,
+    ).toBe(403);
     expect((await call('localhost', { ENVIRONMENT: 'production' }, 'owner')).status).toBe(403);
   });
 

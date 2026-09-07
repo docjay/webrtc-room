@@ -1,4 +1,4 @@
-# Status — local build complete
+# Status — Sites integration in progress
 
 **Orchestration:** gpt-5.6-sol, medium. Terra medium implemented the bounded
 foundation, application, protocol, and reviewed-defect slices. Luna medium ran
@@ -7,6 +7,13 @@ focused read-only integration review. Astra was not used because no unresolved
 blocker justified escalation.
 
 ## Completed
+
+- Replaced the production fail-closed identity placeholder with the trusted
+  Sites-dispatcher `oai-authenticated-user-id` integration. Production accepts
+  no development identity header, and owner authorization remains server-side.
+- Preserved the Worker-compatible default entry point and staged the existing
+  versioned migrations into `dist/.openai/drizzle/` for Sites deployment,
+  alongside `dist/server/index.js` and `dist/client/`.
 
 - Replaced same-page RTC smoke with authenticated host/guest HTTP signaling, canonical host-issued attempt generations, sanitized two-device capability manifest, identical acknowledgements, generation/probe-isolated SDP/candidate exchange, and real paired ordered data channels.
 - Matrix ranks mixed profiles by their weakest hop (direct UDP/STUN, TURN UDP, TURN TLS, TURN TCP, ICE-TCP), waits for better/equal terminal rows for deterministic selection, and retains at most one eligible passed channel per tier before closing losers.
@@ -22,6 +29,13 @@ blocker justified escalation.
 - Added versioned migration `0002_integrity_and_quotas.sql`; the local runner now applies ordered, unapplied migrations without resetting data. Cleanup is child-first and bounded. Event accounting now uses a conditional insert plus trigger, so counters follow only unique inserted rows under concurrent uploads.
 
 ## Verification — 2026-09-06, Chromium headless on macOS
+
+- **2026-09-07 Sites integration preflight:** `npm run check` passed (format,
+  strict TypeScript, ESLint, 23 unit/integration tests, and Worker/client
+  build); `npm run reset:local && npm run migrate:local` passed; the current
+  Sites packager accepted the artifact with both migration files, the Worker,
+  client assets, and `DB` binding metadata. Browser rerun and hosted validation
+  remain pending platform registration.
 
 - `npm run check` — passed: formatting, TypeScript, ESLint, 23 Vitest unit/integration tests, client and Worker builds.
 - `npm run reset:local && npm run migrate:local` (twice) — passed; reset followed by ordered, idempotent migration application to `.local-data/webrtc-room.sqlite`.

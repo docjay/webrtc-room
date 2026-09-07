@@ -2,9 +2,12 @@ export interface IdentityAdapter {
   identity(request: Request): Promise<string | null>;
 }
 export class ProductionIdentityAdapter implements IdentityAdapter {
-  public identity(_request: Request): Promise<string | null> {
-    void _request;
-    return Promise.resolve(null);
+  public identity(request: Request): Promise<string | null> {
+    // This header is injected by the Sites dispatcher after it has authenticated
+    // the visitor. It is deliberately read only in the production adapter:
+    // development keeps its loopback-only test seam below.
+    const identity = request.headers.get('oai-authenticated-user-id');
+    return Promise.resolve(identity && identity.trim() ? identity : null);
   }
 }
 export class DevelopmentIdentityAdapter implements IdentityAdapter {

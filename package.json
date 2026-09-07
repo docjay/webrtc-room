@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "npm run build --silent && node scripts/dev.mjs",
-    "build": "tsc -p tsconfig.server.json && vite build && vite build --config vite.server.config.ts",
+    "build": "tsc -p tsconfig.server.json && vite build && vite build --config vite.server.config.ts && node scripts/stage-sites.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --write .",

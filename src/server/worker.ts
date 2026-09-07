@@ -21,6 +21,8 @@ export interface Env {
   DB: D1Database;
   OWNER_ID?: string;
   ENVIRONMENT?: string;
+  /** Sites/Workers static asset binding, injected by the hosting platform. */
+  ASSETS?: { fetch(request: Request): Promise<Response> };
 }
 export interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -384,6 +386,9 @@ export function createWorker(deps: Dependencies = {}) {
           }
           return json({ error: 'not found' }, 404);
         }
+        // Keep the API Worker and Vite client as separate outputs locally while
+        // letting Sites serve the packaged client assets in production.
+        if (!url.pathname.startsWith('/api/') && env.ASSETS) return env.ASSETS.fetch(request);
         return json({ error: 'not found' }, 404);
       } catch (error) {
         return json(

@@ -106,11 +106,8 @@ Evidence boundaries:
 
 ### Platform-only
 
-Apply current Sites package/plugin/platform-auth guidance; finish the
-`dist/server/index.js` Sites integration seam if the platform requires
-adaptation; wire the logical D1 binding and migrations; provide the trusted
-Sites identity dispatcher/adapter; configure the real owner ID; and perform
-hosted validation/deployment only after authorization.
+Provision the logical Sites `DB` binding, configure the verified stable owner
+identity, and perform hosted validation/deployment only after authorization.
 
 ### Credentials/network-dependent
 
@@ -160,8 +157,11 @@ use it against hosted D1.
 
 ## Authentication and safeguards
 
-`ProductionIdentityAdapter` currently returns `null`, so production admin reads
-fail closed until Codex supplies the trusted Sites dispatcher/auth adapter.
+`ProductionIdentityAdapter` reads only the Sites-dispatcher supplied
+`oai-authenticated-user-id` header, and production admin reads remain fail
+closed without it or without a matching configured owner ID. This header is
+never treated as a client development header; the loopback-only development
+adapter remains separate.
 `DevelopmentIdentityAdapter` is enabled only for non-production loopback
 requests (`localhost`, `127.0.0.1`, or `::1`). Local admin access requires
 `LOCAL_OWNER_ID` to be explicitly configured and the user to manually enter the
