@@ -157,12 +157,17 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   const copied = JSON.parse(await host.evaluate(() => navigator.clipboard.readText())) as {
     runId: string;
     attemptId: string;
-    matrix: unknown[];
+    matrix: Array<{ id: string; outcome: string; selected?: string }>;
     outcome: string;
   };
   expect(copied.runId).toMatch(/^run_/);
   expect(copied.attemptId).toBe(hostAttempt);
   expect(copied.matrix).toHaveLength(16);
+  const passedStunRows = copied.matrix.filter(
+    (row) => row.id.includes('stun-') && row.outcome === 'pass',
+  );
+  expect(passedStunRows.length).toBeGreaterThan(0);
+  expect(passedStunRows.every((row) => /(?:srflx|prflx)/.test(row.selected ?? ''))).toBe(true);
   expect(copied.outcome).toBe('Connected');
   await host.getByRole('button', { name: 'Compact report' }).click();
   const compact = host.getByRole('heading', { name: 'Connection summary' });
@@ -170,6 +175,10 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   await expect(host.locator('.compact-report')).toContainText(hostAttempt);
   await expect(host.locator('.compact-report')).toContainText('Connected');
   await capture(host, 'desktop-compact-report');
+
+  await openDiagnostics(guest);
+  await guest.getByText('Connection speed check', { exact: true }).click();
+  await expect(guest.getByText(/(?:[1-9]|1\d|20)\/20 answered/)).toBeVisible();
 
   await hostContext.close();
   await guestContext.close();

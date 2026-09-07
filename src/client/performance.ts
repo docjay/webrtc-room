@@ -38,6 +38,7 @@ type Control =
   | { perf: true; type: 'preference'; enabled: boolean }
   | { perf: true; type: 'rtt-ping'; id: string }
   | { perf: true; type: 'rtt-pong'; id: string }
+  | { perf: true; type: 'rtt-result'; rtts: number[]; unanswered: number }
   | { perf: true; type: 'start'; direction: DirectionResult['direction'] }
   | { perf: true; type: 'send'; direction: DirectionResult['direction'] }
   | { perf: true; type: 'end'; direction: DirectionResult['direction']; reason: string }
@@ -85,6 +86,7 @@ export class CoordinatedPerformance {
   >();
   private readonly results = new Map<DirectionResult['direction'], DirectionResult>();
   private remotePreference: boolean | undefined;
+  private remoteRtt: { rtts: number[]; unanswered: number } | undefined;
   private cancelled = false;
   private onResult: ((result: DirectionResult) => void) | undefined;
   public constructor(
@@ -121,11 +123,13 @@ export class CoordinatedPerformance {
       };
     if (!this.host) return this.waitForCompletion();
     const rtts = await this.runRtt();
+    const unanswered = this.limits.pingCount - rtts.length;
+    this.send({ perf: true, type: 'rtt-result', rtts, unanswered });
     if (!this.cancelled) await this.runDirection('a-to-b');
     if (!this.cancelled) await this.runDirection('b-to-a');
     return {
       rtts,
-      unanswered: this.limits.pingCount - rtts.length,
+      unanswered,
       directions: (['a-to-b', 'b-to-a'] as const).flatMap((key) => {
         const result = this.results.get(key);
         return result ? [result] : [];
@@ -142,6 +146,8 @@ export class CoordinatedPerformance {
       return;
     }
     if (message.type === 'preference') this.remotePreference = message.enabled;
+    else if (message.type === 'rtt-result')
+      this.remoteRtt = { rtts: message.rtts, unanswered: message.unanswered };
     else if (message.type === 'rtt-ping')
       this.send({ perf: true, type: 'rtt-pong', id: message.id });
     else if (message.type === 'rtt-pong') {
@@ -266,10 +272,10 @@ export class CoordinatedPerformance {
     });
   }
   private async waitForCompletion(): Promise<PerformanceResult> {
-    while (!this.cancelled && this.results.size < 2) await this.sleep(50);
+    while (!this.cancelled && (this.results.size < 2 || !this.remoteRtt)) await this.sleep(50);
     return {
-      rtts: [],
-      unanswered: 0,
+      rtts: this.remoteRtt?.rtts ?? [],
+      unanswered: this.remoteRtt?.unanswered ?? 0,
       directions: [...this.results.values()],
       cancelled: this.cancelled,
     };

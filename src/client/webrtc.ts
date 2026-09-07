@@ -123,6 +123,21 @@ export function requestedServers(
     ...(endpoint.kind === 'turn' ? { iceTransportPolicy: 'relay' } : {}),
   };
 }
+
+export function candidateMatchesProfile(
+  profile: Profile,
+  mine: 'a' | 'b',
+  candidate: Pick<RTCIceCandidate, 'type' | 'protocol'>,
+) {
+  const requested = mine === 'a' ? profile.a : profile.b;
+  if (requested === 'direct-udp') return candidate.type === 'host' && candidate.protocol === 'udp';
+  if (requested === 'direct-tcp') return candidate.type === 'host' && candidate.protocol === 'tcp';
+  if (requested.startsWith('stun-'))
+    return candidate.type === 'srflx' && candidate.protocol === 'udp';
+  if (requested.startsWith('turn-')) return candidate.type === 'relay';
+  return false;
+}
+
 type PairEvidence = {
   localType: string;
   remoteType: string;
@@ -197,11 +212,12 @@ function candidatePolicy(profile: Profile, selected: PairEvidence | undefined, h
     )
   )
     return 'selected pair protocol did not prove requested direct UDP path';
-  if (
-    stunRequested.some(Boolean) &&
-    !types.some((type, index) => stunRequested[index] && (type === 'srflx' || type === 'prflx'))
-  )
-    return 'selected pair did not prove requested STUN-assisted srflx/prflx path';
+  for (let index = 0; index < stunRequested.length; index++) {
+    if (!stunRequested[index] || types[index] === 'srflx' || types[index] === 'prflx') continue;
+    return types[index] === 'host'
+      ? 'browser selected a local host candidate on the STUN-requesting side; standard APIs cannot force a mapped candidate'
+      : 'selected pair did not expose the requested STUN mapped-candidate evidence';
+  }
   return undefined;
 }
 function describePair(pair: PairEvidence) {
@@ -244,7 +260,7 @@ export async function runPairedProbe(args: {
   const transmit = (type: 'offer' | 'answer' | 'candidate' | 'bye', payload: string) =>
     api.sendSignal(credentials, attempt, probeId, peerId, { type, payload });
   pc.onicecandidate = ({ candidate }) => {
-    if (candidate)
+    if (candidate && candidateMatchesProfile(profile, host ? 'a' : 'b', candidate))
       void transmit('candidate', JSON.stringify(candidate.toJSON())).catch((error: unknown) => {
         pollFailure = error instanceof Error ? error : new Error('candidate signaling failed');
         close();

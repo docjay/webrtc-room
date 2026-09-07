@@ -1,8 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { iceConfigSchema, type Profile } from '../src/shared/domain.js';
-import { requestedServers } from '../src/client/webrtc.js';
+import { candidateMatchesProfile, requestedServers } from '../src/client/webrtc.js';
 
 describe('isolated matrix ICE configuration', () => {
+  it('signals only candidates that can prove the requested profile', () => {
+    const profile: Profile = {
+      id: 'profile_stun',
+      a: 'stun-udp-0',
+      b: 'direct-udp',
+      tier: 0,
+      status: 'queued',
+    };
+    expect(candidateMatchesProfile(profile, 'a', { type: 'host', protocol: 'udp' })).toBe(false);
+    expect(candidateMatchesProfile(profile, 'a', { type: 'srflx', protocol: 'udp' })).toBe(true);
+    expect(candidateMatchesProfile(profile, 'b', { type: 'host', protocol: 'udp' })).toBe(true);
+    expect(candidateMatchesProfile(profile, 'b', { type: 'srflx', protocol: 'udp' })).toBe(false);
+  });
+
   it('uses only the selected multi-URL TURN endpoint and forces relay', () => {
     const config = iceConfigSchema.parse({
       iceServers: [

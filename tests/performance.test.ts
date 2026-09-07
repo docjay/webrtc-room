@@ -65,4 +65,28 @@ describe('coordinated performance protocol primitives', () => {
     host.dispose();
     guest.dispose();
   });
+  it('shares host-measured RTT results with the other participant', async () => {
+    const [hostChannel, guestChannel] = linkedChannels();
+    const limits = {
+      pingCount: 2,
+      pingIntervalMs: 1,
+      pingTimeoutMs: 25,
+      maxDurationMs: 25,
+      maxDirectionBytes: 32,
+      maxTotalBytes: 64,
+      chunkBytes: 16,
+      highWaterBytes: 1024,
+    };
+    const host = new CoordinatedPerformance(hostChannel, true, limits);
+    const guest = new CoordinatedPerformance(guestChannel, false, limits);
+
+    const [hostResult, guestResult] = await Promise.all([host.run(), guest.run()]);
+
+    expect(hostResult.rtts).toHaveLength(2);
+    expect(guestResult.rtts).toEqual(hostResult.rtts);
+    expect(guestResult.unanswered).toBe(hostResult.unanswered);
+    expect(guestResult.directions).toHaveLength(2);
+    host.dispose();
+    guest.dispose();
+  });
 });
