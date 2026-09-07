@@ -1,4 +1,4 @@
-# Status — Sites integration in progress
+# Status — Sites integration configured, unpublished
 
 **Orchestration:** gpt-5.6-sol, medium. Terra medium implemented the bounded
 foundation, application, protocol, and reviewed-defect slices. Luna medium ran
@@ -14,6 +14,10 @@ blocker justified escalation.
 - Preserved the Worker-compatible default entry point and staged the existing
   versioned migrations into `dist/.openai/drizzle/` for Sites deployment,
   alongside `dist/server/index.js` and `dist/client/`.
+- Created the private Sites project and persisted its project ID in hosting
+  metadata. The platform has a logical `DB` binding declaration, production
+  environment flag, and a secret, verified owner-only `OWNER_ID`; no identity
+  value is stored in this repository.
 
 - Replaced same-page RTC smoke with authenticated host/guest HTTP signaling, canonical host-issued attempt generations, sanitized two-device capability manifest, identical acknowledgements, generation/probe-isolated SDP/candidate exchange, and real paired ordered data channels.
 - Matrix ranks mixed profiles by their weakest hop (direct UDP/STUN, TURN UDP, TURN TLS, TURN TCP, ICE-TCP), waits for better/equal terminal rows for deterministic selection, and retains at most one eligible passed channel per tier before closing losers.

@@ -130,12 +130,17 @@ different-network gaps are not local defects.
 
 ## Environment, bindings, and migrations
 
-Use placeholders only when configuring hosting:
+Hosted configuration now declares the Sites project ID and logical D1 binding:
 
-- `DB`: logical D1 binding (`DB`); hosted value is platform-provisioned.
-- `OWNER_ID`: stable site-specific production owner ID, placeholder
-  `<OWNER_ID>`, never a client-supplied value.
-- `ENVIRONMENT=production`: selects production fail-closed identity behavior.
+- `project_id`: platform-issued Sites project identifier persisted in
+  `.openai/hosting.json`.
+- `DB`: logical D1 binding, platform-provisioned.
+- `ENVIRONMENT=production`: hosted runtime value.
+- `OWNER_ID`: secret platform runtime value set to the verified single owner;
+  it is never committed or exposed to the client.
+
+The local development contract remains:
+
 - `LOCAL_OWNER_ID=<LOCAL_OWNER_ID>`: development-only loopback owner value;
   leave unset unless explicitly testing `/admin` locally.
 
