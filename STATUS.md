@@ -1,6 +1,27 @@
 # Status - room-first UX redesign implemented
 
-## Current milestone - 2026-09-07
+## Current milestone - Codex Sites deployment candidate, 2026-09-08
+
+- Prepared the completed UX branch for Codex Sites without deploying or
+  provisioning from Copilot. `KICKOFF.md` now contains the current Terra-medium
+  deployment prompt, and `HANDOFF.md` contains the ordered platform checklist.
+- Cleaned the production server output so `dist/server/` contains only the
+  bundled Worker entrypoint. The staged candidate is 544 KiB and contains
+  `dist/server/index.js`, `dist/client/index.html` plus hashed assets, and exact
+  copies of both ordered D1 migrations under `dist/.openai/drizzle/`.
+- `npm run check` passed formatting, strict TypeScript, ESLint, 37
+  unit/integration tests in 7 files, and both production builds.
+- `npm run test:browser` passed all 4 Chromium tests in 2.0 minutes using real
+  local Worker signaling and two-context WebRTC.
+- Artifact inspection confirmed one server bundle, no external ESM imports,
+  both expected client assets, and byte-identical staged migrations.
+- No known local implementation defects remain. Codex owns the existing Sites
+  project inspection, intended-audience confirmation, production `DB` binding,
+  `ENVIRONMENT`/secret owner configuration, migration application, deployment,
+  and hosted identity/D1/two-device verification. TURN and external-network
+  validation still require suitable credentials and environments.
+
+## UX implementation milestone - 2026-09-07
 
 - Implemented the approved room-first participant flow through source commit
   `0db97ba`: automatic generation-safe device checks, explicit pending room
@@ -62,7 +83,7 @@
   boundaries. Either participant can request one idempotent shared retry.
   Automatic bandwidth traffic begins only after the matrix and is skipped when
   either peer opts out.
-- `npm run check` passed: formatting, strict TypeScript, ESLint, 35
+- `npm run check` passed: formatting, strict TypeScript, ESLint, 37
   unit/integration tests in 7 files, client build, and Worker build.
 - `npm run test:browser` passed in Chromium: 4 tests in 2.0 minutes. It covered
   automatic invitation checks and pending-intent withdrawal, 390px modal and

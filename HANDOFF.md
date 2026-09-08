@@ -1,6 +1,6 @@
 # Copilot build handoff
 
-## Current handoff - UX redesign implementation, 2026-09-07
+## Current handoff - Codex Sites deployment candidate, 2026-09-08
 
 - **Branch:** `work/ux-redesign-plan`
 - **Implementation source commit:** `75f8c5e`
@@ -54,7 +54,7 @@
   expired room authorization. On stale authorization the client closes the dead
   attempt and returns to create/join controls with an actionable explanation.
 - **Verification:** `npm run check` passed with formatting, strict TypeScript,
-  ESLint, 35 Vitest tests, client build, and Worker build. `npm run
+  ESLint, 37 Vitest tests, client build, and Worker build. `npm run
 test:browser` passed 4 Chromium tests in 2.0 minutes using actual local
   Worker signaling and RTC data channels: automatic checks and intent
   withdrawal, responsive keyboard drawer behavior, 16/16 terminal matrix
@@ -62,6 +62,10 @@ test:browser` passed 4 Chromium tests in 2.0 minutes using actual local
   configurable participant-coordinated performance restart, connected peer
   markers, compact summary, expired-room recovery, and guest-originated shared
   retry.
+- **Packaged artifact:** `dist/` is 544 KiB. `dist/server/` contains only the
+  bundled `index.js` Worker and has no external ESM imports. `dist/client/`
+  contains the Vite entry and hashed CSS/JavaScript assets.
+  `dist/.openai/drizzle/` contains byte-identical copies of migrations 0001 and 0002.
 - **Evidence:** screenshots outside Git are at
   `/Users/renjay/.copilot/session-state/7dc1b6c4-cd09-4eb1-8e6f-0f8009517c38/files/ux-redesign-evidence/`.
   Files cover mobile invitation/checking, mobile drawer, mobile validation
@@ -80,10 +84,32 @@ test:browser` passed 4 Chromium tests in 2.0 minutes using actual local
   browser ICE-TCP isolation remains unsupported/inconclusive. This local run
   did not verify hosted owner identity or D1 behavior and made no deployment,
   provisioning, billing, or hosted-configuration changes.
-- **Next hosting action:** Codex should reuse this source commit, preserve the
-  existing project/binding/auth configuration, rebuild, and run only the
-  platform identity/D1/deployment and credential/network-dependent checks once
-  deployment is explicitly authorized.
+- **Next hosting action:** Codex should reuse this source commit and the
+  existing Sites project, confirm the intended audience, configure/verify the
+  production binding and trusted owner identity, deploy, and complete hosted
+  D1/auth/two-device verification. No local implementation defect is being
+  deferred.
+
+### Codex Sites deployment checklist
+
+1. Select Terra with medium reasoning and standard speed, then read
+   `KICKOFF.md`, this handoff, `SPEC.md`, `AGENTS.md`, and `BUILD_HANDOFF.md`.
+2. Reuse `.openai/hosting.json`; do not create another Sites project. Inspect
+   the current project and confirm the intended audience before publication if
+   Sites requires that choice.
+3. Run `npm ci` and `npm run check`. The production package must contain
+   `dist/server/index.js`, `dist/client/`, and the exact ordered migrations in
+   `dist/.openai/drizzle/`.
+4. Configure or verify the logical `DB` binding, `ENVIRONMENT=production`, and
+   secret `OWNER_ID`. Derive the owner value from the actual authenticated Sites
+   dispatcher identity; do not infer it from local tests or commit it.
+5. Verify signed-out and non-owner `/api/admin/*` requests return 403, then
+   verify authenticated owner list, detail, and export access.
+6. Deploy with Sites tools, apply/verify both D1 migrations, and check hosted
+   health, static SPA fallback, room create/join, persistence, two-device
+   WebRTC/chat, reports, and owner authorization.
+7. Report TURN and external-network paths as untested unless credentials and an
+   appropriate network/device pair are actually available.
 
 The remaining sections describe the earlier build and hosting handoff.
 
@@ -133,29 +159,9 @@ Observed locally on macOS on 2026-09-06:
 
 Exact commands:
 
-````
-
-For UI review from another device on the same LAN, bind the development server
-explicitly:
-
-```bash
-npm run dev -- --host 0.0.0.0 --port 4173
-````
-
-Plain HTTP on a private LAN IP is not a browser-trusted secure context. The page
-can be reviewed this way, but real mobile WebRTC diagnostics require trusted
-local HTTPS or a deployed HTTPS origin.sh
-
-The client does render on that insecure origin: ID generation falls back from
-secure-context-only `crypto.randomUUID()` to cryptographically strong
-`crypto.getRandomValues()`. This removes the previous Android Chrome blank
-screen without pretending plain HTTP can run the full WebRTC checks.sh
-
-Device checks report browser WebRTC API support separately from secure-context
-availability. Android Chrome over LAN HTTP therefore shows WebRTC as supported
-and HTTPS as the blocking prerequisite rather than falsely labeling the browser
-unsupported.sh
+```sh
 npm install
+npm ci
 npm run dev
 npm run build
 npm run check
@@ -163,8 +169,19 @@ npm test
 npm run test:browser
 npm run reset:local
 npm run migrate:local
+```
 
-````
+For UI review from another device on the same LAN:
+
+```sh
+npm run dev -- --host 0.0.0.0 --port 4173
+```
+
+Plain HTTP on a private LAN IP is not a browser-trusted secure context. The
+client renders there using a `crypto.getRandomValues()` ID fallback, and device
+checks report browser support separately from the HTTPS prerequisite. Real
+mobile WebRTC diagnostics require trusted local HTTPS or a deployed HTTPS
+origin.
 
 `npm run dev` builds first, then serves the local Worker/static client on
 loopback (default `http://127.0.0.1:4173`). `npm run build` emits
@@ -264,8 +281,9 @@ The local development contract remains:
 - `LOCAL_OWNER_ID=<LOCAL_OWNER_ID>`: development-only loopback owner value;
   leave unset unless explicitly testing `/admin` locally.
 
-No secrets, TURN credentials, project IDs, database IDs, URLs, or owner
-identifiers are recorded here. `src/server/migrations/0001_initial.sql`
+No secrets, TURN credentials, database IDs, deployed URLs, or owner identifiers
+are recorded here. The existing non-secret Sites project ID is intentionally
+preserved in `.openai/hosting.json`. `src/server/migrations/0001_initial.sql`
 creates rooms, participants, attempts, acknowledgements, capabilities, signals,
 runs, and diagnostic events. `0002_integrity_and_quotas.sql` adds event byte
 accounting, the insert trigger, expiry indexes, and migration bookkeeping.
@@ -275,18 +293,19 @@ For a clean local reset:
 ```sh
 npm run reset:local
 npm run migrate:local
-````
+```
 
 The reset is local-only and recreates `.local-data/webrtc-room.sqlite`; do not
 use it against hosted D1.
 
 ## Authentication and safeguards
 
-`ProductionIdentityAdapter` reads only the Sites-dispatcher supplied
-`oai-authenticated-user-id` header, and production admin reads remain fail
-closed without it or without a matching configured owner ID. This header is
-never treated as a client development header; the loopback-only development
-adapter remains separate.
+`ProductionIdentityAdapter` reads the Sites-dispatcher supplied
+`oai-authenticated-user-email` identity, with the dispatcher user ID as a
+fallback. Production admin reads remain fail closed without an authenticated
+identity and a matching configured owner value. These headers are never treated
+as client development headers; the loopback-only development adapter remains
+separate.
 `DevelopmentIdentityAdapter` is enabled only for non-production loopback
 requests (`localhost`, `127.0.0.1`, or `::1`). Local admin access requires
 `LOCAL_OWNER_ID` to be explicitly configured and the user to manually enter the

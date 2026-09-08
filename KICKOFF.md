@@ -1,6 +1,39 @@
 # Current kickoff and historical build prompts
 
-## Current: UX redesign in a fresh Copilot session
+## Current: Codex Sites deployment handoff
+
+Select **gpt-5.6-terra**, **medium reasoning**, and standard speed in Codex where
+available. Open the repository at the branch and commit recorded at the top of
+`HANDOFF.md`, then use:
+
+> Deploy the completed WebRTC Room application to Codex Sites. Read
+> `HANDOFF.md`, `SPEC.md`, `AGENTS.md`, and `BUILD_HANDOFF.md` first. Reuse the
+> existing application, lockfile, Worker entry, D1 migrations, hosting metadata,
+> and UX; do not scaffold or rebuild it from scratch.
+>
+> Use the current Sites skills and platform tools to inspect the staged package,
+> preserve the existing Sites project identity, configure/verify the logical
+> `DB` binding, set `ENVIRONMENT=production`, and configure `OWNER_ID` from the
+> actual authenticated Sites dispatcher identity. Keep secrets out of Git.
+> Verify signed-out and non-owner admin rejection before verifying owner
+> list/detail/export access.
+>
+> Resolve the intended audience before publication if the platform requires an
+> audience choice. Apply the existing ordered D1 migrations, deploy through
+> Sites, then verify hosted health, static routing, room create/join,
+> persistence, two-device WebRTC/chat, reporting, and real owner authorization.
+> Do not claim TURN UDP/TCP/TLS or external-network coverage without supplied
+> credentials and suitable devices/networks. Return the live HTTPS URL and any
+> remaining external verification gaps.
+>
+> Terra medium owns platform integration and deployment. Use Luna only for a
+> narrow documentation or fixture task, Sol only for a bounded difficult
+> protocol/security investigation, and Astra only after a concrete unresolved
+> blocker justifies escalation. Do not provision unrelated paid services,
+> change billing, create a new repository, or replace the existing Sites
+> project.
+
+## Historical: UX redesign in a fresh Copilot session
 
 Select **gpt-5.6-sol**, **medium reasoning**, in the actual new session's model
 selector. Open the repository containing this planning commit. No factory is

@@ -8,7 +8,7 @@ export default defineConfig({
   build: {
     ssr: 'src/server/index.ts',
     outDir: 'dist/server',
-    emptyOutDir: false,
+    emptyOutDir: true,
     rollupOptions: { output: { entryFileNames: 'index.js' } },
   },
 });
