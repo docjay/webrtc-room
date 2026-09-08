@@ -12,6 +12,12 @@
   explicit, messaging becomes primary when a verified channel opens, and
   technical evidence remains available through an accessible responsive
   drawer and complete local report.
+- **Pending redeployment:** two same-Wi-Fi iPhone Safari reports exposed
+  overlapping per-probe signaling polls. Slower out-of-order responses could
+  regress the cursor and replay negotiation messages, while failure was masked
+  as a 30-second data-channel timeout. Polls are now serialized and signaling
+  failures reject the open wait immediately. The hosted site must be rebuilt
+  and redeployed from the new source commit before the phones retest.
 - Safari review terminology is incorporated: advanced settings identify the
   two default STUN discovery servers, show an optional valid STUN/TURN JSON
   example and explain both server roles, while the bandwidth preference is
@@ -54,7 +60,7 @@
   expired room authorization. On stale authorization the client closes the dead
   attempt and returns to create/join controls with an actionable explanation.
 - **Verification:** `npm run check` passed with formatting, strict TypeScript,
-  ESLint, 37 Vitest tests, client build, and Worker build. `npm run
+  ESLint, 38 Vitest tests, client build, and Worker build. `npm run
 test:browser` passed 4 Chromium tests in 2.0 minutes using actual local
   Worker signaling and RTC data channels: automatic checks and intent
   withdrawal, responsive keyboard drawer behavior, 16/16 terminal matrix
@@ -62,6 +68,10 @@ test:browser` passed 4 Chromium tests in 2.0 minutes using actual local
   configurable participant-coordinated performance restart, connected peer
   markers, compact summary, expired-room recovery, and guest-originated shared
   retry.
+- **WebKit evidence:** the focused two-context WebKit connection scenario
+  passed in 33.2 seconds and exchanged application data. This is useful engine
+  coverage but does not replace confirmation on the two physical iPhones and
+  their Wi-Fi.
 - **Packaged artifact:** `dist/` is 544 KiB. `dist/server/` contains only the
   bundled `index.js` Worker and has no external ESM imports. `dist/client/`
   contains the Vite entry and hashed CSS/JavaScript assets.

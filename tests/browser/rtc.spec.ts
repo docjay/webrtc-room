@@ -230,6 +230,36 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   await guestContext.close();
 });
 
+test('WebKit devices connect and exchange data without clipboard permissions', async ({
+  browser,
+  browserName,
+}) => {
+  test.skip(browserName !== 'webkit');
+  const hostContext = await browser.newContext();
+  const guestContext = await browser.newContext();
+  const host = await hostContext.newPage();
+  const guest = await guestContext.newPage();
+  await host.goto('/');
+  await host.getByRole('button', { name: 'Create a room' }).click();
+  await expect(host.getByRole('heading', { name: 'Waiting for the other device' })).toBeVisible({
+    timeout: 25_000,
+  });
+  const code = ((await host.locator('.invitation-card strong').textContent()) ?? '').trim();
+
+  await guest.goto(`/?room=${code}`);
+  await guest.getByRole('button', { name: 'Join room' }).click();
+  await Promise.all([
+    expect(host.getByRole('heading', { name: 'Connected' })).toBeVisible({ timeout: 120_000 }),
+    expect(guest.getByRole('heading', { name: 'Connected' })).toBeVisible({ timeout: 120_000 }),
+  ]);
+  await host.getByLabel('Write a message').fill('hello from WebKit host');
+  await host.getByRole('button', { name: 'Send' }).click();
+  await expect(guest.getByText('hello from WebKit host')).toBeVisible({ timeout: 10_000 });
+
+  await hostContext.close();
+  await guestContext.close();
+});
+
 test('a guest-applied configuration starts a shared retry generation', async ({ browser }) => {
   test.setTimeout(240_000);
   const hostContext = await browser.newContext();

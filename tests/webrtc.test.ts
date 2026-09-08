@@ -1,8 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import { iceConfigSchema, type Profile } from '../src/shared/domain.js';
-import { candidateMatchesProfile, requestedServers } from '../src/client/webrtc.js';
+import { candidateMatchesProfile, nonOverlapping, requestedServers } from '../src/client/webrtc.js';
 
 describe('isolated matrix ICE configuration', () => {
+  it('serializes signaling polls so response order cannot regress the cursor', async () => {
+    let release!: () => void;
+    let calls = 0;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const poll = nonOverlapping(async () => {
+      calls++;
+      await pending;
+      return calls;
+    });
+
+    const first = poll();
+    expect(await poll()).toBeUndefined();
+    expect(calls).toBe(1);
+    release();
+    await first;
+    expect(await poll()).toBe(2);
+  });
+
   it('signals only candidates that can prove the requested profile', () => {
     const profile: Profile = {
       id: 'profile_stun',

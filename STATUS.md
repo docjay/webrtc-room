@@ -2,6 +2,18 @@
 
 ## Current milestone - Codex Sites deployment candidate, 2026-09-08
 
+- Diagnosed a real two-iPhone Safari failure from paired reports: both devices
+  passed HTTPS, WebRTC API, signaling reachability, host gathering, and STUN
+  gathering, but every paired row ended at the 30-second data-channel deadline.
+  Per-probe polling could overlap and complete out of order on slower mobile
+  responses, regress its cursor, and replay signaling. A poll/candidate failure
+  also closed RTC without rejecting the open wait, masking the cause as a later
+  timeout.
+- Serialized each probe's signaling polls and now reject the active open wait
+  immediately with the actual signaling failure. Added deterministic
+  non-overlap coverage. The full Chromium suite still passes, and a focused
+  two-context Playwright WebKit run connected and exchanged application data in
+  33.2 seconds. Actual iPhone confirmation remains pending redeployment.
 - Prepared the completed UX branch for Codex Sites without deploying or
   provisioning from Copilot. `KICKOFF.md` now contains the current Terra-medium
   deployment prompt, and `HANDOFF.md` contains the ordered platform checklist.
@@ -9,7 +21,7 @@
   bundled Worker entrypoint. The staged candidate is 544 KiB and contains
   `dist/server/index.js`, `dist/client/index.html` plus hashed assets, and exact
   copies of both ordered D1 migrations under `dist/.openai/drizzle/`.
-- `npm run check` passed formatting, strict TypeScript, ESLint, 37
+- `npm run check` passed formatting, strict TypeScript, ESLint, 38
   unit/integration tests in 7 files, and both production builds.
 - `npm run test:browser` passed all 4 Chromium tests in 2.0 minutes using real
   local Worker signaling and two-context WebRTC.

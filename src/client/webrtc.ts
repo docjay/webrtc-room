@@ -24,6 +24,18 @@ export type ProbeTerminal = {
   close: () => void;
 };
 export const PAIRED_PROBE_DEADLINE_MS = 30_000;
+export function nonOverlapping<T>(work: () => Promise<T>) {
+  let running = false;
+  return async (): Promise<T | undefined> => {
+    if (running) return undefined;
+    running = true;
+    try {
+      return await work();
+    } finally {
+      running = false;
+    }
+  };
+}
 export async function probeIce(
   server: RTCIceServer | string | undefined,
   options: ProbeIceOptions | number = {},
@@ -251,6 +263,7 @@ export async function runPairedProbe(args: {
     done = false,
     remoteDescriptionSet = false,
     pollFailure: Error | undefined;
+  let rejectOpened: ((error: Error) => void) | undefined;
   const pendingCandidates: RTCIceCandidateInit[] = [];
   const close = () => {
     done = true;
@@ -264,6 +277,7 @@ export async function runPairedProbe(args: {
     if (candidate && candidateMatchesProfile(profile, host ? 'a' : 'b', candidate))
       void transmit('candidate', JSON.stringify(candidate.toJSON())).catch((error: unknown) => {
         pollFailure = error instanceof Error ? error : new Error('candidate signaling failed');
+        rejectOpened?.(pollFailure);
         close();
       });
   };
@@ -272,15 +286,19 @@ export async function runPairedProbe(args: {
       () => reject(new Error('data channel deadline')),
       PAIRED_PROBE_DEADLINE_MS,
     );
+    rejectOpened = (error) => {
+      window.clearTimeout(timer);
+      reject(error);
+    };
     const activateChannel = (value: RTCDataChannel) => {
       channel = value;
       value.onopen = () => {
         clearTimeout(timer);
+        rejectOpened = undefined;
         resolve(value);
       };
       value.onerror = () => {
-        clearTimeout(timer);
-        reject(new Error('data channel error'));
+        rejectOpened?.(new Error('data channel error'));
       };
     };
     if (host) activateChannel(pc.createDataChannel('matrix', { ordered: true }));
@@ -289,48 +307,42 @@ export async function runPairedProbe(args: {
       activateChannel(incoming);
     };
   });
-  const poll = window.setInterval(
-    () =>
-      void (async () => {
-        if (done || cancelled() || pollFailure) return;
-        try {
-          const response = await api.pollSignals(credentials, attempt, probeId, cursor);
-          for (const signal of response.signals) {
-            cursor = signal.id;
-            const parsed: unknown = JSON.parse(signal.body);
-            if (!parsed || typeof parsed !== 'object') continue;
-            const message = parsed as { type?: unknown; payload?: unknown };
-            if (typeof message.type !== 'string' || typeof message.payload !== 'string') continue;
-            if (message.type === 'offer') {
-              await pc.setRemoteDescription(
-                JSON.parse(message.payload) as RTCSessionDescriptionInit,
-              );
-              remoteDescriptionSet = true;
-              for (const candidate of pendingCandidates) await pc.addIceCandidate(candidate);
-              pendingCandidates.length = 0;
-              const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
-              await transmit('answer', JSON.stringify(answer));
-            } else if (message.type === 'answer') {
-              await pc.setRemoteDescription(
-                JSON.parse(message.payload) as RTCSessionDescriptionInit,
-              );
-              remoteDescriptionSet = true;
-              for (const candidate of pendingCandidates) await pc.addIceCandidate(candidate);
-              pendingCandidates.length = 0;
-            } else if (message.type === 'candidate') {
-              const candidate = JSON.parse(message.payload) as RTCIceCandidateInit;
-              if (remoteDescriptionSet) await pc.addIceCandidate(candidate);
-              else pendingCandidates.push(candidate);
-            }
-          }
-        } catch (error) {
-          pollFailure = error instanceof Error ? error : new Error('signaling poll failed');
-          close();
+  const pollSignals = nonOverlapping(async () => {
+    if (done || cancelled() || pollFailure) return;
+    try {
+      const response = await api.pollSignals(credentials, attempt, probeId, cursor);
+      for (const signal of response.signals) {
+        cursor = signal.id;
+        const parsed: unknown = JSON.parse(signal.body);
+        if (!parsed || typeof parsed !== 'object') continue;
+        const message = parsed as { type?: unknown; payload?: unknown };
+        if (typeof message.type !== 'string' || typeof message.payload !== 'string') continue;
+        if (message.type === 'offer') {
+          await pc.setRemoteDescription(JSON.parse(message.payload) as RTCSessionDescriptionInit);
+          remoteDescriptionSet = true;
+          for (const candidate of pendingCandidates) await pc.addIceCandidate(candidate);
+          pendingCandidates.length = 0;
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          await transmit('answer', JSON.stringify(answer));
+        } else if (message.type === 'answer') {
+          await pc.setRemoteDescription(JSON.parse(message.payload) as RTCSessionDescriptionInit);
+          remoteDescriptionSet = true;
+          for (const candidate of pendingCandidates) await pc.addIceCandidate(candidate);
+          pendingCandidates.length = 0;
+        } else if (message.type === 'candidate') {
+          const candidate = JSON.parse(message.payload) as RTCIceCandidateInit;
+          if (remoteDescriptionSet) await pc.addIceCandidate(candidate);
+          else pendingCandidates.push(candidate);
         }
-      })(),
-    150,
-  );
+      }
+    } catch (error) {
+      pollFailure = error instanceof Error ? error : new Error('signaling poll failed');
+      rejectOpened?.(pollFailure);
+      close();
+    }
+  });
+  const poll = window.setInterval(() => void pollSignals(), 150);
   try {
     if (host) {
       const offer = await pc.createOffer();
