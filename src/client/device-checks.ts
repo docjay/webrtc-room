@@ -1,4 +1,4 @@
-import { sanitizeIceConfig, type IceConfig } from '../shared/domain.js';
+import { iceServerAddress, sanitizeIceConfig, type IceConfig } from '../shared/domain.js';
 import { probeIce, type ProbeIceOptions } from './webrtc.js';
 
 export type DeviceCheckOutcome =
@@ -316,9 +316,13 @@ export class DeviceCheckController {
     signal: AbortSignal,
   ): Promise<DeviceCheckResult> {
     const result = await probeIce(server, this.probeOptions(signal));
+    const address = iceServerAddress(String(server.urls));
     return {
       id,
-      label: kind === 'turn' ? 'TURN relay allocation' : 'STUN mapped-address discovery',
+      label:
+        kind === 'turn'
+          ? `TURN relay allocation — ${address}`
+          : `STUN mapped-address discovery — ${address}`,
       outcome: this.probeOutcome(result.outcome),
       elapsedMs: result.elapsedMs,
       candidateTypes: publicCandidateTypes(result),

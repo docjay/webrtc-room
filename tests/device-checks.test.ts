@@ -73,6 +73,9 @@ describe('device checks', () => {
     expect(
       snapshot.results.find((result) => result.id.startsWith('stun-'))?.candidateTypes,
     ).toContain('srflx');
+    expect(snapshot.results.find((result) => result.id.startsWith('stun-'))?.label).toBe(
+      'STUN mapped-address discovery — stun.example:3478',
+    );
     expect(
       snapshot.results.find((result) => result.id.startsWith('turn-') && result.candidateTypes)
         ?.candidateTypes,

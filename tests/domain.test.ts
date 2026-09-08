@@ -5,6 +5,8 @@ import {
   diagnosticEventSchema,
   goodputMbps,
   iceConfigSchema,
+  iceProfileLabel,
+  iceServerAddress,
   nextProfiles,
   percentile,
   redact,
@@ -119,6 +121,25 @@ describe('domain rules', () => {
       ['turn-tcp-1', 'turn:relay.example:3478?transport=tcp'],
       ['turn-tls-2', 'turns:relay.example:443?transport=tcp'],
     ]);
+  });
+  it('labels each ICE profile with its credential-free server address', () => {
+    const config = iceConfigSchema.parse({
+      iceServers: [
+        { urls: 'stun:stun.example:3478' },
+        {
+          urls: 'turns:relay.example:443?transport=tcp',
+          username: 'user',
+          credential: 'secret',
+        },
+      ],
+    });
+
+    expect(iceServerAddress('stun:stun.example:3478')).toBe('stun.example:3478');
+    expect(iceProfileLabel('stun-udp-0', config)).toBe('STUN stun.example:3478');
+    expect(iceProfileLabel('turn-tls-0', config)).toBe('TURN relay.example:443 (TLS)');
+    expect(iceProfileLabel('direct-udp', config)).toBe('Direct UDP');
+    expect(iceProfileLabel('missing', config)).toBe('missing');
+    expect(iceProfileLabel('turn-tls-0', config)).not.toContain('secret');
   });
   it('calculates bounded measurements', () => {
     expect(percentile([1, 2, 3, 4, 5], 0.95)).toBe(5);

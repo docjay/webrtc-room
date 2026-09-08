@@ -12,6 +12,10 @@
   passed. Endpoint preflight now succeeds as soon as the required host, srflx,
   or relay candidate appears instead of depending on Safari to emit a
   gathering-complete event.
+- Device checks, connection-path rows, event messages, compact failures, and
+  exported matrix results now name the credential-free STUN/TURN server address
+  rather than exposing only an indexed transport ID. This makes a failed result
+  attributable to Azure, Google, or a specific custom endpoint.
 - Diagnosed a real two-iPhone Safari failure from paired reports: both devices
   passed HTTPS, WebRTC API, signaling reachability, host gathering, and STUN
   gathering, but every paired row ended at the 30-second data-channel deadline.

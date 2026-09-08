@@ -28,6 +28,9 @@
   deadline, producing a false timeout even though paired rows passed. Isolated
   probes now succeed immediately when their required host/srflx/relay evidence
   appears.
+- **Endpoint labels pending deployment:** device checks, matrix rows, event
+  messages, compact failures, and exported matrix results identify each
+  credential-free STUN/TURN server address. Credentials remain excluded.
 - Safari review terminology is incorporated: advanced settings identify the
   two default STUN discovery servers, show an optional valid STUN/TURN JSON
   example and explain both server roles, while the bandwidth preference is

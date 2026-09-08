@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import {
   createId,
   iceConfigSchema,
+  iceProfileLabel,
   sanitizeIceConfig,
   selectEligibleProfile,
   type DiagnosticEvent,
@@ -657,7 +658,10 @@ function App() {
       cleanups.current.push(connection.close);
       installChat(connection.channel, suite);
       setMain('Connected');
-      record(`selected path ${eligible.id}`, 'success');
+      record(
+        `selected path ${iceProfileLabel(eligible.a, appliedConfig)} → ${iceProfileLabel(eligible.b, appliedConfig)}`,
+        'success',
+      );
     };
     await Promise.all(
       Array.from({ length: Math.min(3, profiles.length) }, async () => {
@@ -716,7 +720,7 @@ function App() {
           activateEligibleConnection();
           setMatrix((rows) => rows.map((value) => (value.id === profile.id ? row : value)));
           record(
-            `${profile.id}: ${result.outcome} (${result.detail})`,
+            `${iceProfileLabel(profile.a, appliedConfig)} → ${iceProfileLabel(profile.b, appliedConfig)}: ${result.outcome} (${result.detail})`,
             result.outcome === 'pass'
               ? 'success'
               : result.outcome === 'timeout'
@@ -846,7 +850,11 @@ function App() {
       attemptId: attempt?.id,
       configurationVersion: checksVersion,
       deviceChecks,
-      matrix,
+      matrix: matrix.map((row) => ({
+        ...row,
+        a: iceProfileLabel(row.a, appliedConfig),
+        b: iceProfileLabel(row.b, appliedConfig),
+      })),
       performance: {
         automaticBandwidthEnabled,
         status: performance,
@@ -1098,7 +1106,10 @@ function App() {
               row.outcome !== 'queued' &&
               row.outcome !== 'running',
           )
-          .map((row) => `${row.a} → ${row.b}: ${row.detail ?? row.outcome}`),
+          .map(
+            (row) =>
+              `${iceProfileLabel(row.a, appliedConfig)} → ${iceProfileLabel(row.b, appliedConfig)}: ${row.detail ?? row.outcome}`,
+          ),
       ],
     },
     advancedSettings: {
@@ -1156,7 +1167,7 @@ function App() {
           : 'Waiting for peer',
         matrix: matrix.map((row) => ({
           id: row.id,
-          profile: `${row.a} → ${row.b}`,
+          profile: `${iceProfileLabel(row.a, appliedConfig)} → ${iceProfileLabel(row.b, appliedConfig)}`,
           outcome: row.outcome ?? 'queued',
           queued: `${row.queuedMs ?? 0} ms`,
           active: `${row.activeMs ?? 0} ms`,

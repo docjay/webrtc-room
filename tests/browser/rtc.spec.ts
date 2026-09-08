@@ -22,6 +22,10 @@ async function currentAttempt(page: Page) {
 test('automatic checks keep explicit intent pending and the mobile drawer accessible', async ({
   page,
 }) => {
+  await page.route('**/api/health', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await route.continue();
+  });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/?room=ABC234');
 
@@ -49,6 +53,10 @@ test('automatic checks keep explicit intent pending and the mobile drawer access
   await page.getByText('Device checks', { exact: true }).click();
   await expect(page.getByText('TURN relay-only testing')).toBeVisible();
   await expect(page.getByText('Direct ICE-TCP isolated testing')).toBeVisible();
+  await expect(page.getByText('STUN mapped-address discovery — stun.azure.com:3478')).toBeVisible();
+  await expect(
+    page.getByText('STUN mapped-address discovery — stun.l.google.com:19302'),
+  ).toBeVisible();
   await page.getByText('Advanced network settings', { exact: true }).click();
   const serverJson = page.getByLabel('Optional STUN/TURN server JSON');
   await expect(serverJson).toHaveAttribute('placeholder', /"iceServers"/);
@@ -196,12 +204,14 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   const copied = JSON.parse(await host.evaluate(() => navigator.clipboard.readText())) as {
     runId: string;
     attemptId: string;
-    matrix: Array<{ id: string; outcome: string; selected?: string }>;
+    matrix: Array<{ id: string; a: string; b: string; outcome: string; selected?: string }>;
     outcome: string;
   };
   expect(copied.runId).toMatch(/^run_/);
   expect(copied.attemptId).toBe(hostAttempt);
   expect(copied.matrix).toHaveLength(16);
+  expect(copied.matrix.some((row) => row.a.includes('STUN stun.azure.com:3478'))).toBe(true);
+  expect(copied.matrix.some((row) => row.b.includes('STUN stun.l.google.com:19302'))).toBe(true);
   const passedStunRows = copied.matrix.filter(
     (row) => row.id.includes('stun-') && row.outcome === 'pass',
   );

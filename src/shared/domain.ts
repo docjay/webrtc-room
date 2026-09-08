@@ -91,6 +91,23 @@ export function sanitizeIceConfig(config: IceConfig): SanitizedIceServer[] {
   });
 }
 
+export function iceServerAddress(url: string): string {
+  const match = /^(stun|turn|turns):([^?]+)(?:\?transport=(udp|tcp))?$/.exec(url);
+  if (!match) return url;
+  const [, scheme, address, requestedTransport] = match;
+  if (scheme === 'stun') return address!;
+  const transport = scheme === 'turns' ? 'TLS' : (requestedTransport ?? 'udp').toUpperCase();
+  return `${address} (${transport})`;
+}
+
+export function iceProfileLabel(id: string, config: IceConfig): string {
+  if (id === 'direct-udp') return 'Direct UDP';
+  if (id === 'direct-tcp') return 'Direct TCP';
+  const endpoint = sanitizeIceConfig(config).find((value) => value.id === id);
+  if (!endpoint) return id;
+  return `${endpoint.kind.toUpperCase()} ${iceServerAddress(endpoint.urls[0]!)}`;
+}
+
 export const diagnosticEventSchema = z
   .object({
     runId: runIdSchema,
