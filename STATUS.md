@@ -3,7 +3,7 @@
 ## Current milestone - 2026-09-07
 
 - Implemented the approved room-first participant flow through source commit
-  `0597199`: automatic generation-safe device checks, explicit pending room
+  `3237759`: automatic generation-safe device checks, explicit pending room
   intent, invitation-first joining, waiting/connected/recovery states, primary
   messaging, copy invitation, and coordinated participant-initiated retries.
 - Added a diagnostics drawer closed by default: non-modal desktop panel,
@@ -26,6 +26,10 @@
   honestly inconclusive because the browser selected its own local host
   candidate, which standard WebRTC cannot exclude. Guest reports now receive
   the host-measured RTT summary instead of displaying a misleading `0/20`.
+- Device diagnostics now report browser transport capability directly:
+  TURN relay-only isolation is feature-tested through the standard relay
+  policy, while direct ICE-TCP isolation is marked unsupported with the
+  all-candidate versus relay-only API limitation explained.
 - Preserved the full paired connectivity matrix and Workers/D1/Sites/auth
   boundaries. Either participant can request one idempotent shared retry.
   Automatic bandwidth traffic begins only after the matrix and is skipped when

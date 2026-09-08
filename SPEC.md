@@ -40,6 +40,14 @@ Page load initializes a local run and automatically starts browser/API/secure-co
 
 Device-only checks distinguish local gathering, endpoint discovery/allocation, and actual paired connectivity. Host candidates alone do not prove STUN success; require mapped-address evidence from the isolated endpoint probe. TURN probes retain each endpoint's credentials in browser memory, require relay-allocation evidence, and never equate allocation with peer connectivity. Missing TURN is not configured, not a failure. Browser limitations and missing evidence are unsupported/inconclusive, never general claims that UDP/TCP is allowed or blocked. Preserve cancellation, deadlines, bounded concurrency, and configuration/check generations so obsolete results cannot unlock room actions.
 
+The browser capability summary explicitly distinguishes TURN relay-only
+isolation, which standard `iceTransportPolicy: "relay"` can request, from
+direct ICE-TCP isolation, which browser JavaScript cannot request because the
+standard policy exposes only all-candidate or relay-only modes. A browser may
+support or expose TCP candidates internally without making a direct TCP-only
+matrix row enforceable. Report that distinction before users inspect matrix
+outcomes.
+
 Once both peers join and are ready, automatically schedule the full configured connectivity matrix without an additional button. A successful connection MUST NOT cancel the remaining tests. Distinguish Main connection ready from Diagnostics complete, and show completed/total/running/queued test counts.
 
 STUN is a discovery mechanism, not a separate media/data transport. Matrix distinguishes endpoint STUN response/mapping discovery, host-only direct UDP, STUN-assisted direct UDP with no TURN, direct ICE-TCP, and TURN-assisted paths. For STUN-assisted tests isolate each configured STUN endpoint profile; report the actual selected host/srflx/prflx pair. If a host path wins, that does not establish that a srflx path worked. Candidate-constrained testing must be verified; inability to isolate a path is inconclusive/unsupported, never success under another label.

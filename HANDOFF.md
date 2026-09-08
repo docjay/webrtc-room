@@ -3,7 +3,7 @@
 ## Current handoff - UX redesign implementation, 2026-09-07
 
 - **Branch:** `work/ux-redesign-plan`
-- **Implementation source commit:** `0597199`
+- **Implementation source commit:** `3237759`
 - **Starting/planning commit:** `1c62490`
 - **Worktree:**
   `/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`
@@ -38,6 +38,11 @@
   STUN-requesting peer's own host candidate and remain inconclusive; standard
   WebRTC exposes no policy for excluding local host candidates while retaining
   srflx candidates. Direct ICE-TCP remains unsupported rather than simulated.
+- The device-check drawer exposes this capability boundary before the matrix:
+  it feature-tests the standard TURN relay-only policy and separately marks
+  direct ICE-TCP isolated testing unsupported because JavaScript has no
+  TCP-only ICE transport policy. This does not claim the browser lacks an
+  internal ICE-TCP implementation.
 - **Verification:** `npm run check` passed with formatting, strict TypeScript,
   ESLint, 34 Vitest tests, client build, and Worker build. `npm run
 test:browser` passed 3 Chromium tests in 1.7 minutes using actual local
