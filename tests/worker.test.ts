@@ -147,6 +147,26 @@ describe('worker room integration', () => {
     expect((await request(signalUrl, { method: 'GET', headers: auth(host) })).status).toBe(409);
   });
 
+  it('distinguishes invalid capability payloads from missing room authorization', async () => {
+    const { request } = await fixture();
+    const { host, auth } = await credentials(request);
+    const path = `/api/rooms/${host.roomCode}/capabilities`;
+    const unauthorized = await request(path, {
+      method: 'POST',
+      body: JSON.stringify({ endpoints: [] }),
+    });
+    expect(unauthorized.status).toBe(403);
+    expect(await unauthorized.json()).toEqual({ error: 'forbidden' });
+
+    const malformed = await request(path, {
+      method: 'POST',
+      headers: auth(host),
+      body: JSON.stringify({ endpoints: [{ id: 'not-an-endpoint' }] }),
+    });
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toEqual({ error: 'invalid capabilities' });
+  });
+
   it('revokes a departed guest before admitting and authenticating a replacement', async () => {
     const { request } = await fixture();
     const { host, guest, auth } = await credentials(request);

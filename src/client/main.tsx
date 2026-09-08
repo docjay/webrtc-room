@@ -515,9 +515,17 @@ function App() {
       setMain('Connecting devices');
       await runMatrix(issued, room, suiteGeneration.current);
     } catch (coordinateError) {
-      setError(
-        `Connection setup needs attention. Recheck this device or try again: ${coordinateError instanceof Error ? coordinateError.message : 'unknown error'}`,
-      );
+      const message = coordinateError instanceof Error ? coordinateError.message : 'unknown error';
+      if (/forbidden|expired|not found/i.test(message)) {
+        tearDownAttempt(false);
+        setCredentials(null);
+        setMain('Disconnected');
+        setError(
+          'This room expired or this device no longer has access. Create a new room or enter a current invitation code.',
+        );
+        return;
+      }
+      setError(`Connection setup needs attention. Recheck this device or try again: ${message}`);
       setMain('Unable to connect');
     } finally {
       coordinating.current = false;

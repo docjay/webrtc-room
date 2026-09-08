@@ -162,8 +162,9 @@ export function createWorker(deps: Dependencies = {}) {
             .object({ endpoints: endpointsSchema })
             .strict()
             .safeParse(await body(request));
-          if (!access || !room.success || access.room_code !== room.data || !input.success)
-            return json({ error: 'invalid capabilities' }, 400);
+          if (!access || !room.success || access.room_code !== room.data)
+            return json({ error: 'forbidden' }, 403);
+          if (!input.success) return json({ error: 'invalid capabilities' }, 400);
           await repo.saveCapabilities(access, stableJson(input.data.endpoints));
           return json({ saved: true });
         }

@@ -76,6 +76,24 @@ test('automatic checks keep explicit intent pending and the mobile drawer access
   await capture(page, 'desktop-diagnostics-drawer');
 });
 
+test('expired room access returns to actionable room controls', async ({ page }) => {
+  await page.route('**/api/rooms/*/capabilities', (route) =>
+    route.fulfill({
+      status: 403,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'forbidden' }),
+    }),
+  );
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Create a room' }).click();
+
+  await expect(page.getByRole('alert')).toContainText(/room expired|no longer has access/i, {
+    timeout: 25_000,
+  });
+  await expect(page.getByRole('button', { name: 'Create a room' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Join room' })).toBeVisible();
+});
+
 test('two devices auto-check, connect, exchange chat, finish the matrix, and render one report', async ({
   browser,
 }) => {
