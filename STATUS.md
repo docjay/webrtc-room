@@ -50,6 +50,10 @@
 - The local development server now honors explicit `--host` and `--port`
   options. LAN UI review can use `npm run dev -- --host 0.0.0.0 --port 4173`;
   real mobile WebRTC diagnostics still require a browser-trusted HTTPS origin.
+- Fixed blank startup on insecure LAN origins where Chrome omits
+  `crypto.randomUUID()`. Client IDs now use `crypto.getRandomValues()` as the
+  cryptographically strong browser-compatible fallback. The LAN URL renders
+  without client errors; its insecure-context limitation remains explicit.
 - Preserved the full paired connectivity matrix and Workers/D1/Sites/auth
   boundaries. Either participant can request one idempotent shared retry.
   Automatic bandwidth traffic begins only after the matrix and is skipped when

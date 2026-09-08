@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildProfiles,
+  createId,
   diagnosticEventSchema,
   goodputMbps,
   iceConfigSchema,
@@ -9,11 +10,28 @@ import {
   redact,
   sanitizeIceConfig,
   profileTier,
+  randomIdSource,
   selectEligibleProfile,
   type Profile,
 } from '../src/shared/domain.js';
 import { transition } from '../src/shared/lifecycle.js';
 describe('domain rules', () => {
+  it('creates strong browser IDs when randomUUID is unavailable', () => {
+    let next = 0;
+    const source = {
+      getRandomValues: <T extends ArrayBufferView>(array: T) => {
+        const bytes = new Uint8Array(array.buffer, array.byteOffset, array.byteLength);
+        bytes.forEach((_, index) => {
+          bytes[index] = next++;
+        });
+        return array;
+      },
+    };
+    expect(randomIdSource(source)).toBe('000102030405060708090a0b0c0d0e0f');
+    expect(createId('run', () => randomIdSource(source))).toBe(
+      'run_101112131415161718191a1b1c1d1e1f',
+    );
+  });
   it('rejects invalid ICE and removes credentials from diagnostics', () => {
     expect(
       iceConfigSchema.safeParse({

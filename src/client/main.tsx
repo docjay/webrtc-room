@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+  createId,
   iceConfigSchema,
   sanitizeIceConfig,
   selectEligibleProfile,
@@ -589,7 +590,7 @@ function App() {
       if (typeof data === 'string' && data.startsWith('chat:'))
         setMessages((items) => [
           ...items,
-          { id: crypto.randomUUID(), author: 'Other device', text: data.slice(5) },
+          { id: createId('message'), author: 'Other device', text: data.slice(5) },
         ]);
       else if (
         typeof data === 'string' &&
@@ -826,7 +827,7 @@ function App() {
   function send() {
     if (!draft.trim() || mainChannel.current?.readyState !== 'open') return;
     mainChannel.current.send(`chat:${draft}`);
-    setMessages((items) => [...items, { id: crypto.randomUUID(), author: 'You', text: draft }]);
+    setMessages((items) => [...items, { id: createId('message'), author: 'You', text: draft }]);
     record('chat message sent');
     setDraft('');
   }

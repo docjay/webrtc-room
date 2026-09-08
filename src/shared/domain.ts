@@ -20,10 +20,14 @@ export const sessionStateSchema = z.enum([
 ]);
 export type SessionState = z.infer<typeof sessionStateSchema>;
 export type IdSource = () => string;
-export const createId = (
-  prefix: string,
-  source: IdSource = () => crypto.randomUUID().replaceAll('-', ''),
-) => `${prefix}_${source()}`;
+type BrowserCrypto = Pick<Crypto, 'getRandomValues'> & Partial<Pick<Crypto, 'randomUUID'>>;
+export function randomIdSource(source: BrowserCrypto = crypto) {
+  if (typeof source.randomUUID === 'function') return source.randomUUID().replaceAll('-', '');
+  const bytes = source.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+export const createId = (prefix: string, source: IdSource = randomIdSource) =>
+  `${prefix}_${source()}`;
 
 const iceUrl = z
   .string()

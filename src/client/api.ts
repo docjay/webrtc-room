@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  createId,
   attemptIdSchema,
   participantIdSchema,
   probeIdSchema,
@@ -143,7 +144,7 @@ export class ApiClient {
       z.object({ accepted: z.boolean() }),
       {
         method: 'POST',
-        body: JSON.stringify({ recipientId, messageId: crypto.randomUUID(), body }),
+        body: JSON.stringify({ recipientId, messageId: createId('signal'), body }),
       },
       credentials,
     );

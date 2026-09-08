@@ -1,4 +1,4 @@
-import { goodputMbps, percentile } from '../shared/domain.js';
+import { createId, goodputMbps, percentile } from '../shared/domain.js';
 
 export const PERFORMANCE_DEFAULTS = {
   pingCount: 20,
@@ -232,7 +232,7 @@ export class CoordinatedPerformance {
   private async runRtt() {
     const ids: string[] = [];
     for (let index = 0; index < this.limits.pingCount && !this.cancelled; index++) {
-      const id = `${index}-${crypto.randomUUID()}`;
+      const id = `${index}-${createId('rtt')}`;
       ids.push(id);
       this.starts.set(id, this.now());
       this.send({ perf: true, type: 'rtt-ping', id });

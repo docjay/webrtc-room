@@ -145,6 +145,11 @@ npm run dev -- --host 0.0.0.0 --port 4173
 Plain HTTP on a private LAN IP is not a browser-trusted secure context. The page
 can be reviewed this way, but real mobile WebRTC diagnostics require trusted
 local HTTPS or a deployed HTTPS origin.sh
+
+The client does render on that insecure origin: ID generation falls back from
+secure-context-only `crypto.randomUUID()` to cryptographically strong
+`crypto.getRandomValues()`. This removes the previous Android Chrome blank
+screen without pretending plain HTTP can run the full WebRTC checks.sh
 npm install
 npm run dev
 npm run build
