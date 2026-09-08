@@ -74,8 +74,15 @@ describe('device checks', () => {
       snapshot.results.find((result) => result.id.startsWith('stun-'))?.candidateTypes,
     ).toContain('srflx');
     expect(
-      snapshot.results.find((result) => result.id.startsWith('turn-'))?.candidateTypes,
+      snapshot.results.find((result) => result.id.startsWith('turn-') && result.candidateTypes)
+        ?.candidateTypes,
     ).toContain('relay');
+    expect(snapshot.results.find((result) => result.id === 'turn-relay-isolation')).toMatchObject({
+      outcome: 'pass',
+    });
+    const directTcp = snapshot.results.find((result) => result.id === 'direct-ice-tcp-isolation');
+    expect(directTcp?.outcome).toBe('unsupported');
+    expect(directTcp?.detail).toMatch(/not direct TCP-only selection/i);
     const turn = configurations.find(
       (value) => value.iceTransportPolicy === 'relay' && value.iceServers?.[0]?.urls !== undefined,
     );

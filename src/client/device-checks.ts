@@ -9,6 +9,7 @@ export type DeviceCheckResult = {
   label: string;
   outcome: DeviceCheckOutcome;
   elapsedMs: number;
+  detail?: string;
   candidateTypes?: Array<'host' | 'srflx' | 'prflx' | 'relay' | 'unavailable'>;
 };
 export type DeviceCheckSnapshot = {
@@ -153,7 +154,10 @@ export class DeviceCheckController {
     signal: AbortSignal,
   ): Array<() => Promise<DeviceCheckResult>> {
     const browser = this.browserResult();
-    const tasks: Array<() => Promise<DeviceCheckResult>> = [() => Promise.resolve(browser)];
+    const tasks: Array<() => Promise<DeviceCheckResult>> = [
+      () => Promise.resolve(browser),
+      ...this.transportCapabilities(browser).map((result) => () => Promise.resolve(result)),
+    ];
     tasks.push(() => this.signaling(signal));
     if (browser.outcome === 'pass') tasks.push(() => this.localGathering(signal));
     const configured = sanitizeIceConfig(input.configuration);
@@ -192,6 +196,44 @@ export class DeviceCheckController {
       outcome,
       elapsedMs: Math.round(this.environment.now() - start),
     };
+  }
+
+  private transportCapabilities(browser: DeviceCheckResult): DeviceCheckResult[] {
+    const started = this.environment.now();
+    let relayIsolation: DeviceCheckOutcome = 'unsupported';
+    if (browser.outcome === 'pass') {
+      try {
+        const connection = this.environment.rtcFactory({
+          iceServers: [],
+          iceTransportPolicy: 'relay',
+        });
+        connection.close();
+        relayIsolation = 'pass';
+      } catch {
+        relayIsolation = 'unsupported';
+      }
+    }
+    const elapsedMs = Math.round(this.environment.now() - started);
+    return [
+      {
+        id: 'turn-relay-isolation',
+        label: 'TURN relay-only testing',
+        outcome: relayIsolation,
+        elapsedMs,
+        detail:
+          relayIsolation === 'pass'
+            ? 'This browser can require relay candidates; configured TURN UDP, TCP, and TLS URLs are tested separately.'
+            : 'This browser did not accept the standard relay-only transport policy.',
+      },
+      {
+        id: 'direct-ice-tcp-isolation',
+        label: 'Direct ICE-TCP isolated testing',
+        outcome: 'unsupported',
+        elapsedMs,
+        detail:
+          'WebRTC can use TCP candidates, but browser JavaScript exposes only all-candidate or relay-only policy, not direct TCP-only selection.',
+      },
+    ];
   }
 
   private async signaling(signal: AbortSignal): Promise<DeviceCheckResult> {

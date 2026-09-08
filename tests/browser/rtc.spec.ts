@@ -46,6 +46,9 @@ test('automatic checks keep explicit intent pending and the mobile drawer access
   await expect(page.getByRole('button', { name: 'Close diagnostics' })).toBeFocused();
   await capture(page, 'mobile-diagnostics-drawer');
 
+  await page.getByText('Device checks', { exact: true }).click();
+  await expect(page.getByText('TURN relay-only testing')).toBeVisible();
+  await expect(page.getByText('Direct ICE-TCP isolated testing')).toBeVisible();
   await page.getByText('Advanced network settings', { exact: true }).click();
   const serverJson = page.getByLabel('Optional STUN/TURN server JSON');
   await expect(serverJson).toHaveAttribute('placeholder', /"iceServers"/);

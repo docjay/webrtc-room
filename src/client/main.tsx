@@ -980,13 +980,23 @@ function App() {
         id: 'device',
         title: 'Device checks',
         summary: deviceChecks.phase,
-        checks: deviceChecks.results.map((result) => ({
-          id: result.id,
-          label: result.label,
-          outcome: result.outcome,
-          duration: `${result.elapsedMs} ms`,
-          ...(result.candidateTypes ? { detail: result.candidateTypes.join(', ') } : {}),
-        })),
+        checks: deviceChecks.results.map((result) => {
+          const detail = [
+            result.detail,
+            result.candidateTypes?.length
+              ? `Observed candidates: ${result.candidateTypes.join(', ')}`
+              : undefined,
+          ]
+            .filter((value): value is string => Boolean(value))
+            .join(' · ');
+          return {
+            id: result.id,
+            label: result.label,
+            outcome: result.outcome,
+            duration: `${result.elapsedMs} ms`,
+            ...(detail ? { detail } : {}),
+          };
+        }),
       },
       {
         id: 'paths',
