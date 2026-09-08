@@ -3,7 +3,7 @@
 ## Current milestone - 2026-09-07
 
 - Implemented the approved room-first participant flow through source commit
-  `3237759`: automatic generation-safe device checks, explicit pending room
+  `0db97ba`: automatic generation-safe device checks, explicit pending room
   intent, invitation-first joining, waiting/connected/recovery states, primary
   messaging, copy invitation, and coordinated participant-initiated retries.
 - Added a diagnostics drawer closed by default: non-modal desktop panel,
@@ -30,18 +30,22 @@
   TURN relay-only isolation is feature-tested through the standard relay
   policy, while direct ICE-TCP isolation is marked unsupported with the
   all-candidate versus relay-only API limitation explained.
+- Expired or stale room authorization now returns a distinct forbidden response
+  instead of the misleading `invalid capabilities` error. The participant
+  client tears down the dead attempt and restores actionable create/join
+  controls without clearing the local database.
 - Preserved the full paired connectivity matrix and Workers/D1/Sites/auth
   boundaries. Either participant can request one idempotent shared retry.
   Automatic bandwidth traffic begins only after the matrix and is skipped when
   either peer opts out.
-- `npm run check` passed: formatting, strict TypeScript, ESLint, 34
+- `npm run check` passed: formatting, strict TypeScript, ESLint, 35
   unit/integration tests in 7 files, client build, and Worker build.
-- `npm run test:browser` passed in Chromium: 3 tests in 1.7 minutes. It covered
+- `npm run test:browser` passed in Chromium: 4 tests in 1.9 minutes. It covered
   automatic invitation checks and pending-intent withdrawal, 390px modal and
   1440px non-modal drawer behavior with no horizontal overflow, actual
   Worker-signaled two-context WebRTC, 16/16 terminal matrix rows, bidirectional
   chat, synchronized report IDs/content, bounded performance, compact report,
-  and a guest-originated retry observed by both peers.
+  expired-room recovery, and a guest-originated retry observed by both peers.
 - Screenshots are retained outside Git at
   `/Users/renjay/.copilot/session-state/7dc1b6c4-cd09-4eb1-8e6f-0f8009517c38/files/ux-redesign-evidence/`.
   They cover mobile invitation/checking, drawer and validation failure plus

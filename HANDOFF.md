@@ -3,7 +3,7 @@
 ## Current handoff - UX redesign implementation, 2026-09-07
 
 - **Branch:** `work/ux-redesign-plan`
-- **Implementation source commit:** `3237759`
+- **Implementation source commit:** `0db97ba`
 - **Starting/planning commit:** `1c62490`
 - **Worktree:**
   `/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`
@@ -43,13 +43,17 @@
   direct ICE-TCP isolated testing unsupported because JavaScript has no
   TCP-only ICE transport policy. This does not claim the browser lacks an
   internal ICE-TCP implementation.
+- Capability submission now distinguishes malformed payloads from missing or
+  expired room authorization. On stale authorization the client closes the dead
+  attempt and returns to create/join controls with an actionable explanation.
 - **Verification:** `npm run check` passed with formatting, strict TypeScript,
-  ESLint, 34 Vitest tests, client build, and Worker build. `npm run
-test:browser` passed 3 Chromium tests in 1.7 minutes using actual local
+  ESLint, 35 Vitest tests, client build, and Worker build. `npm run
+test:browser` passed 4 Chromium tests in 1.9 minutes using actual local
   Worker signaling and RTC data channels: automatic checks and intent
   withdrawal, responsive keyboard drawer behavior, 16/16 terminal matrix
   rows, bidirectional chat, common attempt IDs, complete clipboard report,
-  bounded performance, compact summary, and guest-originated shared retry.
+  bounded performance, compact summary, expired-room recovery, and
+  guest-originated shared retry.
 - **Evidence:** screenshots outside Git are at
   `/Users/renjay/.copilot/session-state/7dc1b6c4-cd09-4eb1-8e6f-0f8009517c38/files/ux-redesign-evidence/`.
   Files cover mobile invitation/checking, mobile drawer, mobile validation
