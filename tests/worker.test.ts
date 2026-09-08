@@ -96,7 +96,7 @@ describe('worker room integration', () => {
               endpoints: [
                 {
                   id: 'stun-udp-0',
-                  urls: ['stun:stun.l.google.com:19302'],
+                  urls: ['stun:stun.cloudflare.com:3478'],
                   kind: 'stun',
                   transports: ['udp'],
                 },

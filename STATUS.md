@@ -15,9 +15,9 @@
 - Device checks, connection-path rows, event messages, compact failures, and
   exported matrix results now name the credential-free STUN/TURN server address
   rather than exposing only an indexed transport ID. This makes a failed result
-  attributable to Google or a specific custom endpoint.
-- Google `stun.l.google.com:19302` is the sole built-in STUN server; users can
-  still add or replace endpoints through advanced configuration.
+  attributable to Cloudflare or a specific custom endpoint.
+- Cloudflare `stun.cloudflare.com:3478` is the sole built-in STUN server; users
+  can still add or replace endpoints through advanced configuration.
 - Diagnosed a real two-iPhone Safari failure from paired reports: both devices
   passed HTTPS, WebRTC API, signaling reachability, host gathering, and STUN
   gathering, but every paired row ended at the 30-second data-channel deadline.

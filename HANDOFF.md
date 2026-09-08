@@ -31,11 +31,11 @@
 - **Endpoint labels pending deployment:** device checks, matrix rows, event
   messages, compact failures, and exported matrix results identify each
   credential-free STUN/TURN server address. Credentials remain excluded.
-- **Default endpoint change pending deployment:** Google
-  `stun.l.google.com:19302` is the sole built-in STUN endpoint; custom
+- **Default endpoint change pending deployment:** Cloudflare
+  `stun.cloudflare.com:3478` is the sole built-in STUN endpoint; custom
   STUN/TURN configuration remains available.
 - Safari review terminology is incorporated: advanced settings identify the
-  sole Google STUN discovery server, show an optional valid STUN/TURN JSON
+  sole Cloudflare STUN discovery server, show an optional valid STUN/TURN JSON
   example and explain both server roles, while the bandwidth preference is
   presented as a bounded connection speed check. The stop action is visible
   only while that traffic is running.

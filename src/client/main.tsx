@@ -25,8 +25,8 @@ import {
 } from './performance.js';
 import './styles.css';
 
-const defaults = ['stun:stun.l.google.com:19302'];
-const defaultStunSummary = 'Default STUN discovery server: stun.l.google.com:19302';
+const defaults = ['stun:stun.cloudflare.com:3478'];
+const defaultStunSummary = 'Default STUN discovery server: stun.cloudflare.com:3478';
 type MatrixRow = Profile & {
   outcome?: string;
   detail?: string;

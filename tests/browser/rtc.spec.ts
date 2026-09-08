@@ -54,7 +54,7 @@ test('automatic checks keep explicit intent pending and the mobile drawer access
   await expect(page.getByText('TURN relay-only testing')).toBeVisible();
   await expect(page.getByText('Direct ICE-TCP isolated testing')).toBeVisible();
   await expect(
-    page.getByText('STUN mapped-address discovery — stun.l.google.com:19302'),
+    page.getByText('STUN mapped-address discovery — stun.cloudflare.com:3478'),
   ).toBeVisible();
   await page.getByText('Advanced network settings', { exact: true }).click();
   const serverJson = page.getByLabel('Optional STUN/TURN server JSON');
@@ -209,8 +209,8 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   expect(copied.runId).toMatch(/^run_/);
   expect(copied.attemptId).toBe(hostAttempt);
   expect(copied.matrix).toHaveLength(9);
-  expect(copied.matrix.some((row) => row.a.includes('STUN stun.l.google.com:19302'))).toBe(true);
-  expect(copied.matrix.some((row) => row.b.includes('STUN stun.l.google.com:19302'))).toBe(true);
+  expect(copied.matrix.some((row) => row.a.includes('STUN stun.cloudflare.com:3478'))).toBe(true);
+  expect(copied.matrix.some((row) => row.b.includes('STUN stun.cloudflare.com:3478'))).toBe(true);
   const passedStunRows = copied.matrix.filter(
     (row) => row.id.includes('stun-') && row.outcome === 'pass',
   );
