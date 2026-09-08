@@ -3,7 +3,7 @@
 ## Current handoff - UX redesign implementation, 2026-09-07
 
 - **Branch:** `work/ux-redesign-plan`
-- **Implementation source commit:** `0db97ba`
+- **Implementation source commit:** `2d3b915`
 - **Starting/planning commit:** `1c62490`
 - **Worktree:**
   `/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`
