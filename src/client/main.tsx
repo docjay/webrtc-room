@@ -4,6 +4,7 @@ import {
   createId,
   iceConfigSchema,
   iceProfileLabel,
+  profileUsesTurn,
   sanitizeIceConfig,
   selectEligibleProfile,
   type DiagnosticEvent,
@@ -246,6 +247,7 @@ function App() {
   const cancelled = useRef(false);
   const activePerformance = useRef<CoordinatedPerformance | null>(null);
   const performanceHost = useRef(false);
+  const performanceBlockedByRelay = useRef(false);
   const performanceSettings = useRef({
     sampleDurationSeconds: performanceSampleDurationSeconds,
     maxDirectionMiB: performanceMaxDirectionMiB,
@@ -387,6 +389,7 @@ function App() {
       cleanups.current.forEach((close) => close());
       cleanups.current = [];
       mainChannel.current = null;
+      performanceBlockedByRelay.current = false;
       setAttempt(null);
       setMatrix([]);
       setPerformance('Not started');
@@ -655,6 +658,7 @@ function App() {
       const connection = eligible ? retained.get(eligible.tier) : undefined;
       if (!eligible || !connection) return;
       selectedConnection = connection;
+      performanceBlockedByRelay.current = profileUsesTurn(eligible);
       mainChannel.current = connection.channel;
       cleanups.current.push(connection.close);
       installChat(connection.channel, suite);
@@ -743,7 +747,12 @@ function App() {
     for (const [tier, connection] of retained) if (tier !== selected?.tier) connection.close();
     if (selectedConnection && selected) {
       performanceHost.current = activeCredentials.participantId === room.hostParticipantId;
-      void runPerformance(selectedConnection.channel, performanceHost.current);
+      if (profileUsesTurn(selected)) {
+        setPerformance('Not run: speed checks are disabled on TURN relay paths');
+        record('performance skipped on TURN relay path', 'info');
+      } else {
+        void runPerformance(selectedConnection.channel, performanceHost.current);
+      }
     } else {
       setMain('Unable to connect');
       setError(
@@ -755,6 +764,10 @@ function App() {
   }
   async function runPerformance(channel: RTCDataChannel, host: boolean) {
     if (activePerformance.current) return;
+    if (performanceBlockedByRelay.current) {
+      setPerformance('Not run: speed checks are disabled on TURN relay paths');
+      return;
+    }
     setPerformanceDirections([]);
     setPerformance('Confirming both participants allow the connection speed check');
     const configuredMaxBytes = performanceSettings.current.maxDirectionMiB * 1024 * 1024;
@@ -1130,6 +1143,7 @@ function App() {
       maxDirectionMiB: performanceMaxDirectionMiB,
       restartAvailable:
         mainChannel.current?.readyState === 'open' &&
+        !performanceBlockedByRelay.current &&
         performanceDeadlineAt === null &&
         performance !== 'Not started',
       directions: performanceDirections.map((result) => ({

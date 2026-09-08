@@ -9,6 +9,7 @@ import {
   iceServerAddress,
   nextProfiles,
   percentile,
+  profileUsesTurn,
   redact,
   sanitizeIceConfig,
   profileTier,
@@ -153,6 +154,8 @@ describe('domain rules', () => {
     expect(profileTier('turn-udp-0', 'turn-tls-1')).toBe(2);
     expect(profileTier('direct-tcp', 'direct-udp')).toBe(4);
     expect(profileTier('direct-tcp', 'turn-udp-0')).toBe(4);
+    expect(profileUsesTurn({ a: 'direct-udp', b: 'turn-udp-0' })).toBe(true);
+    expect(profileUsesTurn({ a: 'stun-udp-0', b: 'direct-udp' })).toBe(false);
     const rows: Array<Profile & { outcome?: string }> = [
       { id: 'profile-z', a: 'direct-udp', b: 'direct-udp', tier: 0, status: 'running' as const },
       {

@@ -34,6 +34,9 @@
 - **Default endpoint change pending deployment:** Cloudflare
   `stun.cloudflare.com:3478` is the sole built-in STUN endpoint; custom
   STUN/TURN configuration remains available.
+- **TURN quota protection pending deployment:** selected TURN relay paths skip
+  RTT/goodput speed checks entirely while retaining connectivity verification,
+  bidirectional application pings, and chat.
 - Safari review terminology is incorporated: advanced settings identify the
   sole Cloudflare STUN discovery server, show an optional valid STUN/TURN JSON
   example and explain both server roles, while the bandwidth preference is

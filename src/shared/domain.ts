@@ -169,6 +169,9 @@ export function profileTier(a: string, b: string): number {
   if (hops.some((hop) => hop.startsWith('turn-udp'))) return 1;
   return 0;
 }
+export function profileUsesTurn(profile: Pick<Profile, 'a' | 'b'>): boolean {
+  return profile.a.startsWith('turn-') || profile.b.startsWith('turn-');
+}
 export function buildProfiles(a: SanitizedIceServer[], b: SanitizedIceServer[]): Profile[] {
   const endpoints = (servers: SanitizedIceServer[]) => [
     'direct-udp',
