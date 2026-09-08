@@ -133,7 +133,18 @@ Observed locally on macOS on 2026-09-06:
 
 Exact commands:
 
-```sh
+````
+
+For UI review from another device on the same LAN, bind the development server
+explicitly:
+
+```bash
+npm run dev -- --host 0.0.0.0 --port 4173
+````
+
+Plain HTTP on a private LAN IP is not a browser-trusted secure context. The page
+can be reviewed this way, but real mobile WebRTC diagnostics require trusted
+local HTTPS or a deployed HTTPS origin.sh
 npm install
 npm run dev
 npm run build
@@ -142,7 +153,8 @@ npm test
 npm run test:browser
 npm run reset:local
 npm run migrate:local
-```
+
+````
 
 `npm run dev` builds first, then serves the local Worker/static client on
 loopback (default `http://127.0.0.1:4173`). `npm run build` emits
@@ -253,7 +265,7 @@ For a clean local reset:
 ```sh
 npm run reset:local
 npm run migrate:local
-```
+````
 
 The reset is local-only and recreates `.local-data/webrtc-room.sqlite`; do not
 use it against hosted D1.

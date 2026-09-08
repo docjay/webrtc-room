@@ -4,10 +4,20 @@ import { extname, join, normalize } from 'node:path';
 import { localD1 } from './local-db.mjs';
 import worker from '../dist/server/index.js';
 
-const requestedPort = process.env.PORT ?? process.argv.slice(2).at(-1) ?? '4173';
+const args = process.argv.slice(2);
+const option = (name) => {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : undefined;
+};
+const positionalPort = args.find(
+  (value, index) => !value.startsWith('-') && args[index - 1] !== '--host',
+);
+const requestedHost = process.env.HOST ?? option('--host') ?? '127.0.0.1';
+const requestedPort = process.env.PORT ?? option('--port') ?? positionalPort ?? '4173';
 const port = Number(requestedPort);
 if (!Number.isInteger(port) || port < 0 || port >= 65_536)
   throw new Error(`invalid PORT: ${requestedPort}`);
+if (!requestedHost) throw new Error('invalid HOST');
 const db = await localD1();
 const types = {
   '.js': 'text/javascript',
@@ -48,6 +58,6 @@ const server = createServer(async (request, response) => {
     response.end(await readFile(join(process.cwd(), 'dist/client/index.html')));
   }
 });
-server.listen(port, '127.0.0.1', () =>
-  console.log(`Local Worker/D1 server listening at http://127.0.0.1:${port}`),
+server.listen(port, requestedHost, () =>
+  console.log(`Local Worker/D1 server listening at http://${requestedHost}:${port}`),
 );

@@ -47,6 +47,9 @@
   every directional result shows its receiver-measured transfer time. Either
   participant can restart the check; the initiator's selected limits are
   synchronized before both peers rerun it.
+- The local development server now honors explicit `--host` and `--port`
+  options. LAN UI review can use `npm run dev -- --host 0.0.0.0 --port 4173`;
+  real mobile WebRTC diagnostics still require a browser-trusted HTTPS origin.
 - Preserved the full paired connectivity matrix and Workers/D1/Sites/auth
   boundaries. Either participant can request one idempotent shared retry.
   Automatic bandwidth traffic begins only after the matrix and is skipped when
