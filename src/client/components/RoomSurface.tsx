@@ -93,7 +93,10 @@ export function RoomSurface({ model, callbacks }: RoomSurfaceProps) {
         {model.participantSlots && (
           <div className="participant-slots" aria-label="Participants">
             {model.participantSlots.map((slot) => (
-              <article className="participant-slot" key={slot.label}>
+              <article
+                className={`participant-slot participant-slot--${slot.tone}`}
+                key={slot.label}
+              >
                 <span className="participant-slot__marker" aria-hidden="true" />
                 <div>
                   <strong>{slot.label}</strong>
@@ -124,6 +127,20 @@ export function RoomSurface({ model, callbacks }: RoomSurfaceProps) {
           <p className="diagnostic-indicator">
             <span aria-hidden="true">◌</span> {model.diagnosticsProgress}
           </p>
+        )}
+
+        {model.performanceSummary && (
+          <section className="room-performance" aria-labelledby="room-performance-title">
+            <h2 id="room-performance-title">Connection speed check</h2>
+            <p aria-live="polite">{model.performanceSummary.status}</p>
+            {model.performanceSummary.results && (
+              <ul>
+                {model.performanceSummary.results.map((result) => (
+                  <li key={result}>{result}</li>
+                ))}
+              </ul>
+            )}
+          </section>
         )}
 
         {isConnected && (

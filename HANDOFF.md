@@ -28,10 +28,17 @@
   the same predecessor into one canonical generation; unrelated stale
   predecessors still fail.
 - Automatic performance preference is synchronized over the selected ordered
-  channel. Either peer's opt-out prevents RTT/goodput traffic. The existing
-  production caps and cancellation behavior remain unchanged. The host's RTT
-  samples are synchronized to the guest report so both views describe the same
-  measurement.
+  channel. Either peer's opt-out prevents RTT/goodput traffic. The adaptive
+  sample target defaults to 3 seconds and 100 MiB per direction; both limits
+  are configurable in Diagnostics, remain bounded, and synchronize when either
+  participant restarts the check. The host's RTT samples are synchronized to
+  the guest report so both views describe the same measurement.
+- Device and matrix progress show deadline-derived upper-bound countdowns, and
+  the main room shows the active speed-check phase, countdown, and directional
+  results. Participant marker colors now derive from explicit connection state.
+  A paired path is retained only after both browsers confirm its local verdict,
+  preventing an asymmetric evidence result from briefly connecting and then
+  closing the room channel.
 - Paired probes now signal only candidates matching the requested profile.
   Local Chromium produced six STUN-assisted passes with selected
   `srflx`/`prflx` evidence. Two one-sided STUN rows still selected the
@@ -48,12 +55,13 @@
   attempt and returns to create/join controls with an actionable explanation.
 - **Verification:** `npm run check` passed with formatting, strict TypeScript,
   ESLint, 35 Vitest tests, client build, and Worker build. `npm run
-test:browser` passed 4 Chromium tests in 1.9 minutes using actual local
+  test:browser` passed 4 Chromium tests in 2.0 minutes using actual local
   Worker signaling and RTC data channels: automatic checks and intent
   withdrawal, responsive keyboard drawer behavior, 16/16 terminal matrix
   rows, bidirectional chat, common attempt IDs, complete clipboard report,
-  bounded performance, compact summary, expired-room recovery, and
-  guest-originated shared retry.
+  configurable participant-coordinated performance restart, connected peer
+  markers, compact summary, expired-room recovery, and guest-originated shared
+  retry.
 - **Evidence:** screenshots outside Git are at
   `/Users/renjay/.copilot/session-state/7dc1b6c4-cd09-4eb1-8e6f-0f8009517c38/files/ux-redesign-evidence/`.
   Files cover mobile invitation/checking, mobile drawer, mobile validation
@@ -276,10 +284,12 @@ stored diagnostic records and exports.
 
 The implementation keeps the SPEC bounds: 10-second HTTP requests, 15-second
 preflight probes, 30-second per-running connectivity profile deadlines,
-15-minute inactive rooms, at most three STUN and six TURN URLs per device,
-bounded concurrent probes, and sequential bounded performance traffic (16 KiB
-chunks, at most 5 seconds or 8 MiB per direction, 16 MiB total plus protocol
-overhead). Diagnostic events are capped at 5,000 events or 2 MiB per run;
+15-minute inactive rooms, at most three STUN and six TURN URLs per device, and
+bounded concurrent probes. Sequential performance traffic uses 16 KiB chunks,
+a configurable 1–10 second sample target (3 seconds by default), and a
+configurable 8–256 MiB ceiling per direction (100 MiB by default, twice that
+total). The byte ceiling is authoritative and cap-limited samples are labeled.
+Diagnostic events are capped at 5,000 events or 2 MiB per run;
 summary/truncation counts are retained. Signals/rooms are expiry-cleaned in
 bounded batches, and report retention cleanup uses the 30-day default. Raw
 signaling data is ephemeral and participant-scoped. Local reports remain

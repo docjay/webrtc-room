@@ -23,6 +23,7 @@ export type ProbeTerminal = {
   channel?: RTCDataChannel;
   close: () => void;
 };
+export const PAIRED_PROBE_DEADLINE_MS = 30_000;
 export async function probeIce(
   server: RTCIceServer | string | undefined,
   options: ProbeIceOptions | number = {},
@@ -267,7 +268,10 @@ export async function runPairedProbe(args: {
       });
   };
   const opened = new Promise<RTCDataChannel>((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(new Error('data channel deadline')), 30_000);
+    const timer = window.setTimeout(
+      () => reject(new Error('data channel deadline')),
+      PAIRED_PROBE_DEADLINE_MS,
+    );
     const activateChannel = (value: RTCDataChannel) => {
       channel = value;
       value.onopen = () => {
@@ -335,6 +339,19 @@ export async function runPairedProbe(args: {
     }
     const active = await opened;
     if (pollFailure) throw pollFailure;
+    const remoteVerdict = new Promise<'pass' | 'inconclusive' | 'timeout'>((resolve) => {
+      const timer = window.setTimeout(() => {
+        active.removeEventListener('message', receiveVerdict);
+        resolve('timeout');
+      }, 3_000);
+      const receiveVerdict = ({ data }: MessageEvent) => {
+        if (data !== 'probe-verdict:pass' && data !== 'probe-verdict:inconclusive') return;
+        window.clearTimeout(timer);
+        active.removeEventListener('message', receiveVerdict);
+        resolve(data === 'probe-verdict:pass' ? 'pass' : 'inconclusive');
+      };
+      active.addEventListener('message', receiveVerdict);
+    });
     const ping = new Promise<boolean>((resolve) => {
       const timer = window.setTimeout(() => resolve(false), 3_000);
       active.onmessage = ({ data }) => {
@@ -349,6 +366,9 @@ export async function runPairedProbe(args: {
     const verified = await ping;
     const selected = await selectedPair(pc);
     const policy = candidatePolicy(profile, selected, host);
+    const localPass = verified && !policy;
+    active.send(`probe-verdict:${localPass ? 'pass' : 'inconclusive'}`);
+    const peerVerdict = await remoteVerdict;
     if (!verified)
       return {
         outcome: 'inconclusive',
@@ -365,6 +385,17 @@ export async function runPairedProbe(args: {
         ...(selected ? { selected: describePair(selected) } : {}),
         close,
       };
+    if (peerVerdict !== 'pass')
+      return {
+        outcome: 'inconclusive',
+        detail:
+          peerVerdict === 'timeout'
+            ? 'peer path-verdict confirmation timed out'
+            : 'peer did not confirm the requested selected-pair evidence',
+        elapsedMs: performance.now() - start,
+        ...(selected ? { selected: describePair(selected) } : {}),
+        close,
+      };
     return {
       outcome: 'pass',
       detail: 'selected pair and bidirectional application ping verified',
@@ -377,7 +408,7 @@ export async function runPairedProbe(args: {
     return {
       outcome: cancelled()
         ? 'cancelled'
-        : performance.now() - start >= 29_500
+        : performance.now() - start >= PAIRED_PROBE_DEADLINE_MS - 500
           ? 'timeout'
           : 'failure',
       detail: error instanceof Error ? error.message : 'negotiation failed',

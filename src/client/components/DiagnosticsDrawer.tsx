@@ -213,6 +213,42 @@ export function DiagnosticsDrawer({ open, model, callbacks, openerRef }: Diagnos
               />
               <span>Measure this connection automatically after the connection-path checks</span>
             </label>
+            <div className="performance-settings">
+              <label className="field">
+                <span>Sample duration target (seconds)</span>
+                <input
+                  min="1"
+                  max="10"
+                  step="1"
+                  type="number"
+                  value={model.performance.sampleDurationSeconds}
+                  onChange={(event) =>
+                    callbacks.onPerformanceSampleDurationChange(
+                      Math.max(1, Math.min(10, Number(event.target.value) || 1)),
+                    )
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>Maximum per direction (MiB)</span>
+                <input
+                  min="8"
+                  max="256"
+                  step="1"
+                  type="number"
+                  value={model.performance.maxDirectionMiB}
+                  onChange={(event) =>
+                    callbacks.onPerformanceMaxDirectionMiBChange(
+                      Math.max(8, Math.min(256, Number(event.target.value) || 8)),
+                    )
+                  }
+                />
+              </label>
+            </div>
+            <p>
+              The duration is a target, not a promise. A fast connection stops at the traffic
+              ceiling and is labeled cap-limited.
+            </p>
             {model.performance.directions && (
               <ul className="check-list">
                 {model.performance.directions.map((direction) => (
@@ -230,6 +266,15 @@ export function DiagnosticsDrawer({ open, model, callbacks, openerRef }: Diagnos
                 type="button"
               >
                 Stop speed check
+              </button>
+            )}
+            {callbacks.onRestartPerformance && model.performance.restartAvailable && (
+              <button
+                className="button button--secondary"
+                onClick={callbacks.onRestartPerformance}
+                type="button"
+              >
+                Restart speed check
               </button>
             )}
           </div>

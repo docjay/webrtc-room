@@ -22,6 +22,7 @@ export interface RoomAction {
 export interface ParticipantSlot {
   label: string;
   state: string;
+  tone: 'waiting' | 'ready' | 'connected' | 'disconnected' | 'error';
   detail?: string;
   current?: boolean;
 }
@@ -36,6 +37,10 @@ export interface RoomSurfaceModel {
   invitationFeedback?: string;
   error?: string;
   diagnosticsProgress?: string;
+  performanceSummary?: {
+    status: string;
+    results?: readonly string[];
+  };
   participantSlots?: readonly ParticipantSlot[];
   messages?: readonly { id: string; author: string; text: string }[];
   messageDraft?: string;
@@ -91,6 +96,9 @@ export interface PerformanceViewModel {
   budget: string;
   status: string;
   automaticBandwidthEnabled: boolean;
+  sampleDurationSeconds: number;
+  maxDirectionMiB: number;
+  restartAvailable: boolean;
   directions?: readonly { direction: string; result: string }[];
 }
 
@@ -124,6 +132,9 @@ export interface DiagnosticsCallbacks {
   onMobileModalChange?: (isModal: boolean) => void;
   onRecheckDevice: () => void;
   onAutomaticBandwidthEnabledChange: (enabled: boolean) => void;
+  onPerformanceSampleDurationChange: (seconds: number) => void;
+  onPerformanceMaxDirectionMiBChange: (mebibytes: number) => void;
+  onRestartPerformance?: () => void;
   onAdvancedDraftChange: (value: string) => void;
   onApplyAdvancedSettings: () => void;
   onCopyReport: () => void;

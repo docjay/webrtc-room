@@ -17,10 +17,16 @@ export type DeviceCheckSnapshot = {
   configurationVersion: string;
   phase: DeviceCheckPhase;
   progress: { completed: number; total: number };
+  limits: { probeDeadlineMs: number; concurrency: number };
   blockingPrerequisites: string[];
   ready: boolean;
   results: DeviceCheckResult[];
 };
+
+export const DEVICE_CHECK_DEFAULTS = {
+  probeDeadlineMs: 15_000,
+  concurrency: 3,
+} as const;
 export type DeviceCheckStart = { configuration: IceConfig; configurationVersion: string };
 export type ReachabilityCheck = (context: { signal: AbortSignal }) => Promise<void>;
 export type DeviceCheckEnvironment = {
@@ -78,6 +84,7 @@ export class DeviceCheckController {
     configurationVersion: '',
     phase: 'idle',
     progress: { completed: 0, total: 0 },
+    limits: DEVICE_CHECK_DEFAULTS,
     blockingPrerequisites: ['Device checks have not run.'],
     ready: false,
     results: [],
@@ -86,8 +93,18 @@ export class DeviceCheckController {
   constructor(options: DeviceCheckOptions = {}) {
     this.checkSignaling = options.checkSignaling;
     this.environment = { ...defaultEnvironment(), ...options.environment };
-    this.probeDeadlineMs = options.probeDeadlineMs ?? 15_000;
-    this.concurrency = Math.max(1, Math.min(3, options.concurrency ?? 3));
+    this.probeDeadlineMs = options.probeDeadlineMs ?? DEVICE_CHECK_DEFAULTS.probeDeadlineMs;
+    this.concurrency = Math.max(
+      1,
+      Math.min(
+        DEVICE_CHECK_DEFAULTS.concurrency,
+        options.concurrency ?? DEVICE_CHECK_DEFAULTS.concurrency,
+      ),
+    );
+    this.snapshot = {
+      ...this.snapshot,
+      limits: { probeDeadlineMs: this.probeDeadlineMs, concurrency: this.concurrency },
+    };
   }
 
   get current(): DeviceCheckSnapshot {
@@ -117,6 +134,7 @@ export class DeviceCheckController {
       configurationVersion: input.configurationVersion,
       phase: 'checking',
       progress: { completed: 0, total: tasks.length },
+      limits: { probeDeadlineMs: this.probeDeadlineMs, concurrency: this.concurrency },
       blockingPrerequisites: [],
       ready: false,
       results: [],

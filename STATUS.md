@@ -34,17 +34,30 @@
   instead of the misleading `invalid capabilities` error. The participant
   client tears down the dead attempt and restores actionable create/join
   controls without clearing the local database.
+- Added participant-facing upper-bound countdowns derived from the actual
+  15-second device-probe and 30-second active-path deadlines. The main room now
+  shows speed-check phases, its remaining upper bound, and completed
+  per-direction results. Participant markers use explicit semantic state, so
+  both devices are green after connection instead of coloring only the current
+  device.
+- Reworked the speed check into an adaptive sample: a configurable 1–10 second
+  target defaults to 3 seconds, while a configurable 8–256 MiB safety ceiling
+  defaults to 100 MiB per direction. The byte ceiling remains authoritative
+  and short fast-link samples are labeled cap-limited. Either participant can
+  restart the check; the initiator's selected limits are synchronized before
+  both peers rerun it.
 - Preserved the full paired connectivity matrix and Workers/D1/Sites/auth
   boundaries. Either participant can request one idempotent shared retry.
   Automatic bandwidth traffic begins only after the matrix and is skipped when
   either peer opts out.
 - `npm run check` passed: formatting, strict TypeScript, ESLint, 35
   unit/integration tests in 7 files, client build, and Worker build.
-- `npm run test:browser` passed in Chromium: 4 tests in 1.9 minutes. It covered
+- `npm run test:browser` passed in Chromium: 4 tests in 2.0 minutes. It covered
   automatic invitation checks and pending-intent withdrawal, 390px modal and
   1440px non-modal drawer behavior with no horizontal overflow, actual
   Worker-signaled two-context WebRTC, 16/16 terminal matrix rows, bidirectional
   chat, synchronized report IDs/content, bounded performance, compact report,
+  connected peer markers, synchronized configurable speed-check restart,
   expired-room recovery, and a guest-originated retry observed by both peers.
 - Screenshots are retained outside Git at
   `/Users/renjay/.copilot/session-state/7dc1b6c4-cd09-4eb1-8e6f-0f8009517c38/files/ux-redesign-evidence/`.

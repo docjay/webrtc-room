@@ -31,10 +31,12 @@ function linkedChannels(): [RTCDataChannel, RTCDataChannel] {
 }
 
 describe('coordinated performance protocol primitives', () => {
-  it('keeps production traffic caps and derives goodput from receiver time', () => {
+  it('keeps adaptive production traffic caps and derives goodput from receiver time', () => {
     expect(PERFORMANCE_DEFAULTS.chunkBytes).toBeLessThanOrEqual(16 * 1024);
-    expect(PERFORMANCE_DEFAULTS.maxDirectionBytes).toBe(8 * 1024 * 1024);
-    expect(PERFORMANCE_DEFAULTS.maxTotalBytes).toBe(16 * 1024 * 1024);
+    expect(PERFORMANCE_DEFAULTS.targetDirectionBytes).toBe(8 * 1024 * 1024);
+    expect(PERFORMANCE_DEFAULTS.minSampleDurationMs).toBe(3_000);
+    expect(PERFORMANCE_DEFAULTS.maxDirectionBytes).toBe(100 * 1024 * 1024);
+    expect(PERFORMANCE_DEFAULTS.maxTotalBytes).toBe(200 * 1024 * 1024);
     expect(receiverResult('a-to-b', 125_000, 50, 1_050, 'byte cap')).toMatchObject({
       bytes: 125_000,
       elapsedMs: 1_000,

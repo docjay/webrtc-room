@@ -310,8 +310,14 @@ button:not(.button):not(.icon-button):hover {
   width: 0.68rem;
 }
 
-.participant-slot:has(.tag) .participant-slot__marker {
+.participant-slot--ready .participant-slot__marker,
+.participant-slot--connected .participant-slot__marker {
   background: #2aa06d;
+}
+
+.participant-slot--disconnected .participant-slot__marker,
+.participant-slot--error .participant-slot__marker {
+  background: #c43b4d;
 }
 
 .participant-slot p {
@@ -335,6 +341,50 @@ button:not(.button):not(.icon-button):hover {
   color: #52627d;
   font-size: 0.88rem;
   margin: 1.25rem 0 0;
+}
+
+.room-performance {
+  background: #f6f8fc;
+  border: 1px solid #d9e1ef;
+  border-color: #d9e1ef;
+  border-radius: 0.7rem;
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+}
+
+.performance-settings {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0.85rem 0;
+}
+
+@media (max-width: 520px) {
+  .performance-settings {
+    grid-template-columns: 1fr;
+  }
+}
+
+.room-performance h2 {
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.room-performance p {
+  color: #52627d;
+  font-size: 0.88rem;
+  margin: 0.3rem 0 0;
+}
+
+.room-performance ul {
+  margin: 0.55rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.room-performance li {
+  color: #34435f;
+  font-size: 0.85rem;
+  margin-top: 0.2rem;
 }
 
 .diagnostics-launch {

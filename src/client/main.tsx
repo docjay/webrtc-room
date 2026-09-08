@@ -14,8 +14,13 @@ import { DeviceCheckController, type DeviceCheckSnapshot } from './device-checks
 import { DiagnosticsDrawer } from './components/DiagnosticsDrawer.js';
 import { RoomSurface } from './components/RoomSurface.js';
 import type { DiagnosticsViewModel, RoomSurfaceModel } from './components/types.js';
-import { runPairedProbe } from './webrtc.js';
-import { CoordinatedPerformance, summarizeRtt, type DirectionResult } from './performance.js';
+import { PAIRED_PROBE_DEADLINE_MS, runPairedProbe } from './webrtc.js';
+import {
+  CoordinatedPerformance,
+  PERFORMANCE_DEFAULTS,
+  summarizeRtt,
+  type DirectionResult,
+} from './performance.js';
 import './styles.css';
 
 const defaults = ['stun:stun.azure.com:3478', 'stun:stun.l.google.com:19302'];
@@ -24,6 +29,7 @@ type MatrixRow = Profile & {
   detail?: string;
   queuedMs?: number;
   activeMs?: number;
+  deadlineAt?: number;
   selected?: string;
 };
 const api = new ApiClient();
@@ -176,8 +182,12 @@ function App() {
   const [fieldError, setFieldError] = useState('');
   const [invitationFeedback, setInvitationFeedback] = useState('');
   const [automaticBandwidthEnabled, setAutomaticBandwidthEnabled] = useState(true);
+  const [performanceSampleDurationSeconds, setPerformanceSampleDurationSeconds] = useState(3);
+  const [performanceMaxDirectionMiB, setPerformanceMaxDirectionMiB] = useState(100);
   const [performance, setPerformance] = useState('Not started');
   const [performanceDirections, setPerformanceDirections] = useState<DirectionResult[]>([]);
+  const [performanceDeadlineAt, setPerformanceDeadlineAt] = useState<number | null>(null);
+  const [clockNow, setClockNow] = useState(() => Date.now());
   const [uploadStatus, setUploadStatus] = useState<
     'pending' | 'saved' | 'upload-failed' | 'truncated'
   >('pending');
@@ -220,6 +230,9 @@ function App() {
   const [deviceChecks, setDeviceChecks] = useState<DeviceCheckSnapshot>(
     () => checkController.current!.current,
   );
+  const deviceCheckTiming = useRef({ generation: deviceChecks.generation, startedAt: Date.now() });
+  if (deviceCheckTiming.current.generation !== deviceChecks.generation)
+    deviceCheckTiming.current = { generation: deviceChecks.generation, startedAt: Date.now() };
   const mainChannel = useRef<RTCDataChannel | null>(null);
   const credentialsRef = useRef<Credentials | null>(null);
   const reportRef = useRef(report);
@@ -229,6 +242,17 @@ function App() {
   const coordinating = useRef(false);
   const cancelled = useRef(false);
   const activePerformance = useRef<CoordinatedPerformance | null>(null);
+  const performanceHost = useRef(false);
+  const performanceSettings = useRef({
+    sampleDurationSeconds: performanceSampleDurationSeconds,
+    maxDirectionMiB: performanceMaxDirectionMiB,
+  });
+  performanceSettings.current = {
+    sampleDurationSeconds: performanceSampleDurationSeconds,
+    maxDirectionMiB: performanceMaxDirectionMiB,
+  };
+  const automaticBandwidthEnabledRef = useRef(automaticBandwidthEnabled);
+  automaticBandwidthEnabledRef.current = automaticBandwidthEnabled;
   const pendingEvents = useRef<DiagnosticEvent[]>([]);
   const uploadRunning = useRef(false);
   const uploadTimer = useRef<number | undefined>(undefined);
@@ -328,6 +352,15 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [credentials, scheduleUpload]);
   useEffect(() => {
+    const countingDown =
+      deviceChecks.phase === 'checking' ||
+      matrix.some((row) => row.status !== 'terminal') ||
+      performanceDeadlineAt !== null;
+    if (!countingDown) return;
+    const timer = window.setInterval(() => setClockNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [deviceChecks.phase, matrix, performanceDeadlineAt]);
+  useEffect(() => {
     const reportBuffer = reportRef.current;
     const events = pendingEvents.current;
     return () => {
@@ -354,6 +387,8 @@ function App() {
       setAttempt(null);
       setMatrix([]);
       setPerformance('Not started');
+      setPerformanceDirections([]);
+      setPerformanceDeadlineAt(null);
       started.current = false;
       cancelled.current = false;
     },
@@ -556,6 +591,22 @@ function App() {
           ...items,
           { id: crypto.randomUUID(), author: 'Other device', text: data.slice(5) },
         ]);
+      else if (
+        typeof data === 'string' &&
+        data.startsWith('perf-restart:') &&
+        !activePerformance.current
+      ) {
+        const [, durationText, maxMiBText] = data.split(':');
+        const duration = Math.max(1, Math.min(10, Number(durationText) || 3));
+        const maxMiB = Math.max(8, Math.min(256, Number(maxMiBText) || 100));
+        performanceSettings.current = {
+          sampleDurationSeconds: duration,
+          maxDirectionMiB: maxMiB,
+        };
+        setPerformanceSampleDurationSeconds(duration);
+        setPerformanceMaxDirectionMiB(maxMiB);
+        void runPerformance(channel, performanceHost.current);
+      }
     });
     const disconnected = () => {
       if (mainChannel.current !== channel || suite !== suiteGeneration.current) return;
@@ -622,6 +673,7 @@ function App() {
                     status: 'running',
                     outcome: 'running',
                     queuedMs: Math.round(startedAt - (queuedAt.get(profile.id) ?? startedAt)),
+                    deadlineAt: Date.now() + PAIRED_PROBE_DEADLINE_MS,
                   }
                 : row,
             ),
@@ -684,10 +736,8 @@ function App() {
     const selected = selectEligibleProfile(terminalRows);
     for (const [tier, connection] of retained) if (tier !== selected?.tier) connection.close();
     if (selectedConnection && selected) {
-      void runPerformance(
-        selectedConnection.channel,
-        activeCredentials.participantId === room.hostParticipantId,
-      );
+      performanceHost.current = activeCredentials.participantId === room.hostParticipantId;
+      void runPerformance(selectedConnection.channel, performanceHost.current);
     } else {
       setMain('Unable to connect');
       setError(
@@ -698,22 +748,45 @@ function App() {
     record('matrix diagnostics complete', 'success');
   }
   async function runPerformance(channel: RTCDataChannel, host: boolean) {
+    if (activePerformance.current) return;
+    setPerformanceDirections([]);
     setPerformance('Confirming both participants allow the connection speed check');
+    const configuredMaxBytes = performanceSettings.current.maxDirectionMiB * 1024 * 1024;
+    const limits = {
+      ...PERFORMANCE_DEFAULTS,
+      minSampleDurationMs: performanceSettings.current.sampleDurationSeconds * 1_000,
+      maxDurationMs: Math.max(
+        PERFORMANCE_DEFAULTS.maxDurationMs,
+        performanceSettings.current.sampleDurationSeconds * 1_000,
+      ),
+      maxDirectionBytes: configuredMaxBytes,
+      maxTotalBytes: configuredMaxBytes * 2,
+      ...window.__WEBRTC_TEST_PERF_LIMITS__,
+    };
+    const maximumDurationMs =
+      3_000 +
+      Math.max(0, limits.pingCount - 1) * limits.pingIntervalMs +
+      limits.pingTimeoutMs +
+      2 * (limits.maxDurationMs + 2_000);
+    setPerformanceDeadlineAt(Date.now() + maximumDurationMs);
     const protocol = new CoordinatedPerformance(
       channel,
       host,
-      window.__WEBRTC_TEST_PERF_LIMITS__,
+      limits,
       undefined,
-      automaticBandwidthEnabled,
+      automaticBandwidthEnabledRef.current,
     );
     activePerformance.current = protocol;
-    const result = await protocol.run((directionResult) =>
-      setPerformanceDirections((rows) => [
-        ...rows.filter((row) => row.direction !== directionResult.direction),
-        directionResult,
-      ]),
+    const result = await protocol.run(
+      (directionResult) =>
+        setPerformanceDirections((rows) => [
+          ...rows.filter((row) => row.direction !== directionResult.direction),
+          directionResult,
+        ]),
+      (progress) => setPerformance(progress.label),
     );
     activePerformance.current = null;
+    setPerformanceDeadlineAt(null);
     protocol.dispose();
     if (result.cancelled) {
       setPerformance('Connection speed check stopped');
@@ -732,6 +805,14 @@ function App() {
       `performance complete (${rtt.count}/20 RTT; ${result.directions.length} receiver results)`,
       'success',
     );
+  }
+  function restartPerformance() {
+    const channel = mainChannel.current;
+    if (!channel || channel.readyState !== 'open' || activePerformance.current) return;
+    channel.send(
+      `perf-restart:${performanceSettings.current.sampleDurationSeconds}:${performanceSettings.current.maxDirectionMiB}`,
+    );
+    void runPerformance(channel, performanceHost.current);
   }
   async function leave() {
     tearDownAttempt(false);
@@ -785,6 +866,29 @@ function App() {
     (all, row) => ({ ...all, [row.status]: (all[row.status] ?? 0) + 1 }),
     {},
   );
+  const formatRemaining = (milliseconds: number) => {
+    const seconds = Math.max(0, Math.ceil(milliseconds / 1_000));
+    if (seconds < 60) return `${seconds}s`;
+    return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  };
+  const deviceRemainingMs =
+    deviceChecks.phase === 'checking'
+      ? Math.max(
+          0,
+          Math.ceil(deviceChecks.progress.total / deviceChecks.limits.concurrency) *
+            deviceChecks.limits.probeDeadlineMs -
+            (clockNow - deviceCheckTiming.current.startedAt),
+        )
+      : 0;
+  const runningMatrix = matrix.filter((row) => row.status === 'running');
+  const queuedMatrix = matrix.filter((row) => row.status === 'queued');
+  const matrixRemainingMs = matrix.some((row) => row.status !== 'terminal')
+    ? Math.max(0, ...runningMatrix.map((row) => (row.deadlineAt ?? clockNow) - clockNow)) +
+      Math.ceil(queuedMatrix.length / 3) * PAIRED_PROBE_DEADLINE_MS
+    : 0;
+  const performanceRemainingMs = performanceDeadlineAt
+    ? Math.max(0, performanceDeadlineAt - clockNow)
+    : 0;
   const surfaceStatus = credentials
     ? main
     : deviceChecks.phase === 'checking'
@@ -845,19 +949,42 @@ function App() {
     error,
     ...(deviceChecks.phase === 'checking'
       ? {
-          diagnosticsProgress: `Checking device: ${deviceChecks.progress.completed} of ${deviceChecks.progress.total}`,
+          diagnosticsProgress: `Checking device: ${deviceChecks.progress.completed} of ${deviceChecks.progress.total} · up to ${formatRemaining(deviceRemainingMs)} remaining`,
         }
       : matrix.length
         ? {
-            diagnosticsProgress: `Network checks: ${counts.terminal ?? 0} of ${matrix.length} complete`,
+            diagnosticsProgress: `Network checks: ${counts.terminal ?? 0} of ${matrix.length} complete${matrixRemainingMs ? ` · up to ${formatRemaining(matrixRemainingMs)} remaining` : ''}`,
           }
         : {}),
+    ...(credentials && (main === 'Connected' || performance !== 'Not started')
+      ? {
+          performanceSummary: {
+            status: `${performance}${performanceRemainingMs ? ` · up to ${formatRemaining(performanceRemainingMs)} remaining` : ''}`,
+            ...(performanceDirections.length
+              ? {
+                  results: performanceDirections.map(
+                    (result) =>
+                      `${result.direction}: ${result.mbps?.toFixed(2) ?? '—'} Mbps over ${(result.bytes / (1024 * 1024)).toFixed(1)} MiB (${result.reason})`,
+                  ),
+                }
+              : {}),
+          },
+        }
+      : {}),
     ...(credentials
       ? {
           participantSlots: [
             {
               label: 'This device',
               state: main === 'Connected' ? 'Connected' : deviceChecks.ready ? 'Ready' : 'Checking',
+              tone:
+                main === 'Connected'
+                  ? 'connected'
+                  : main === 'Disconnected'
+                    ? 'disconnected'
+                    : deviceChecks.ready
+                      ? 'ready'
+                      : 'waiting',
               current: true,
             },
             {
@@ -870,6 +997,14 @@ function App() {
                     : main === 'Disconnected'
                       ? 'Disconnected'
                       : 'Connecting',
+              tone:
+                main === 'Connected'
+                  ? 'connected'
+                  : main === 'Disconnected'
+                    ? 'disconnected'
+                    : main === 'Unable to connect'
+                      ? 'error'
+                      : 'waiting',
             },
           ],
         }
@@ -975,9 +1110,15 @@ function App() {
       preference: automaticBandwidthEnabled
         ? 'On for this device; either participant can turn it off'
         : 'Off for this device; no automatic speed traffic will run',
-      budget: 'Up to 16 MiB of temporary test data, at most 5 seconds in each direction',
-      status: performance,
+      budget: `Target ${performanceSampleDurationSeconds} seconds; up to ${performanceMaxDirectionMiB} MiB per direction and ${performanceMaxDirectionMiB * 2} MiB total; never more than ${Math.max(5, performanceSampleDurationSeconds)} seconds per direction`,
+      status: `${performance}${performanceRemainingMs ? ` · up to ${formatRemaining(performanceRemainingMs)} remaining` : ''}`,
       automaticBandwidthEnabled,
+      sampleDurationSeconds: performanceSampleDurationSeconds,
+      maxDirectionMiB: performanceMaxDirectionMiB,
+      restartAvailable:
+        mainChannel.current?.readyState === 'open' &&
+        performanceDeadlineAt === null &&
+        performance !== 'Not started',
       directions: performanceDirections.map((result) => ({
         direction: result.direction,
         result: `${result.mbps?.toFixed(2) ?? '—'} Mbps, ${result.bytes} bytes (${result.reason})`,
@@ -1067,6 +1208,9 @@ function App() {
           onMobileModalChange: mobileModalChange,
           onRecheckDevice: recheck,
           onAutomaticBandwidthEnabledChange: setAutomaticBandwidthEnabled,
+          onPerformanceSampleDurationChange: setPerformanceSampleDurationSeconds,
+          onPerformanceMaxDirectionMiBChange: setPerformanceMaxDirectionMiB,
+          onRestartPerformance: restartPerformance,
           onAdvancedDraftChange: (value) => {
             setDraftIceText(value);
             setFieldError('');
@@ -1075,7 +1219,7 @@ function App() {
           onCopyReport: () => void copyCompleteReport(),
           onDownloadReport: () => downloadReport(completeSnapshot()),
           onShowCompactReport: () => undefined,
-          ...(performance === 'Confirming both participants allow the connection speed check'
+          ...(performanceDeadlineAt !== null
             ? {
                 onCancelPerformance: () => {
                   activePerformance.current?.cancel();

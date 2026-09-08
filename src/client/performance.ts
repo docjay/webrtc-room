@@ -5,8 +5,10 @@ export const PERFORMANCE_DEFAULTS = {
   pingIntervalMs: 100,
   pingTimeoutMs: 1_000,
   maxDurationMs: 5_000,
-  maxDirectionBytes: 8 * 1024 * 1024,
-  maxTotalBytes: 16 * 1024 * 1024,
+  minSampleDurationMs: 3_000,
+  targetDirectionBytes: 8 * 1024 * 1024,
+  maxDirectionBytes: 100 * 1024 * 1024,
+  maxTotalBytes: 200 * 1024 * 1024,
   chunkBytes: 16 * 1024,
   highWaterBytes: 256 * 1024,
 } as const;
@@ -15,6 +17,8 @@ export type PerformanceLimits = {
   pingIntervalMs: number;
   pingTimeoutMs: number;
   maxDurationMs: number;
+  minSampleDurationMs: number;
+  targetDirectionBytes: number;
   maxDirectionBytes: number;
   maxTotalBytes: number;
   chunkBytes: number;
@@ -34,6 +38,10 @@ export type PerformanceResult = {
   cancelled: boolean;
   skippedReason?: string;
 };
+export type PerformanceProgress =
+  | { phase: 'preference'; label: string }
+  | { phase: 'rtt'; label: string }
+  | { phase: 'direction'; direction: DirectionResult['direction']; label: string };
 type Control =
   | { perf: true; type: 'preference'; enabled: boolean }
   | { perf: true; type: 'rtt-ping'; id: string }
@@ -76,6 +84,11 @@ export function receiverResult(
   return { direction, bytes, elapsedMs, ...(mbps === undefined ? {} : { mbps }), reason };
 }
 
+function formatByteLimit(bytes: number) {
+  const mebibytes = bytes / (1024 * 1024);
+  return Number.isInteger(mebibytes) && mebibytes >= 1 ? `${mebibytes} MiB` : `${bytes} byte`;
+}
+
 export class CoordinatedPerformance {
   private readonly limits: PerformanceLimits;
   private readonly starts = new Map<string, number>();
@@ -89,6 +102,8 @@ export class CoordinatedPerformance {
   private remoteRtt: { rtts: number[]; unanswered: number } | undefined;
   private cancelled = false;
   private onResult: ((result: DirectionResult) => void) | undefined;
+  private onProgress: ((progress: PerformanceProgress) => void) | undefined;
+  private totalSent = 0;
   public constructor(
     private readonly channel: RTCDataChannel,
     private readonly host: boolean,
@@ -107,8 +122,16 @@ export class CoordinatedPerformance {
     this.cancelled = true;
     this.send({ perf: true, type: 'cancel' });
   }
-  async run(onResult?: (result: DirectionResult) => void): Promise<PerformanceResult> {
+  async run(
+    onResult?: (result: DirectionResult) => void,
+    onProgress?: (progress: PerformanceProgress) => void,
+  ): Promise<PerformanceResult> {
     this.onResult = onResult;
+    this.onProgress = onProgress;
+    this.onProgress?.({
+      phase: 'preference',
+      label: 'Confirming both participants allow the speed check',
+    });
     const preference = await this.synchronizePreference();
     if (!preference)
       return {
@@ -122,6 +145,7 @@ export class CoordinatedPerformance {
             : 'The other participant did not confirm the automatic connection speed check.',
       };
     if (!this.host) return this.waitForCompletion();
+    this.onProgress?.({ phase: 'rtt', label: 'Measuring round-trip time' });
     const rtts = await this.runRtt();
     const unanswered = this.limits.pingCount - rtts.length;
     this.send({ perf: true, type: 'rtt-result', rtts, unanswered });
@@ -148,18 +172,30 @@ export class CoordinatedPerformance {
     if (message.type === 'preference') this.remotePreference = message.enabled;
     else if (message.type === 'rtt-result')
       this.remoteRtt = { rtts: message.rtts, unanswered: message.unanswered };
-    else if (message.type === 'rtt-ping')
+    else if (message.type === 'rtt-ping') {
+      this.onProgress?.({ phase: 'rtt', label: 'Measuring round-trip time' });
       this.send({ perf: true, type: 'rtt-pong', id: message.id });
-    else if (message.type === 'rtt-pong') {
+    } else if (message.type === 'rtt-pong') {
       const startedAt = this.starts.get(message.id);
       if (startedAt !== undefined) this.rttReplies.set(message.id, this.now() - startedAt);
-    } else if (message.type === 'start')
+    } else if (message.type === 'start') {
+      this.onProgress?.({
+        phase: 'direction',
+        direction: message.direction,
+        label: 'Measuring the other device to this device',
+      });
       this.receiver.set(message.direction, {
         bytes: 0,
         startedAt: this.now(),
       });
-    else if (message.type === 'send') void this.sendDirection(message.direction);
-    else if (message.type === 'end') {
+    } else if (message.type === 'send') {
+      this.onProgress?.({
+        phase: 'direction',
+        direction: message.direction,
+        label: 'Measuring this device to the other device',
+      });
+      void this.sendDirection(message.direction);
+    } else if (message.type === 'end') {
       const direction = message.direction;
       const measured = this.receiver.get(direction);
       if (measured) {
@@ -218,6 +254,14 @@ export class CoordinatedPerformance {
     return received;
   }
   private async runDirection(direction: DirectionResult['direction']) {
+    this.onProgress?.({
+      phase: 'direction',
+      direction,
+      label:
+        direction === 'a-to-b'
+          ? 'Measuring this device to the other device'
+          : 'Measuring the other device to this device',
+    });
     if (direction === 'a-to-b') {
       this.send({ perf: true, type: 'start', direction });
       await this.sendDirection(direction);
@@ -239,12 +283,14 @@ export class CoordinatedPerformance {
   private async sendDirection(direction: DirectionResult['direction']) {
     const startedAt = this.now();
     let sent = 0;
-    let reason = 'byte cap';
+    let reason = 'sample target';
     const chunk = new Uint8Array(this.limits.chunkBytes);
     while (
       !this.cancelled &&
+      (sent < this.limits.targetDirectionBytes ||
+        this.now() - startedAt < this.limits.minSampleDurationMs) &&
       sent + chunk.byteLength <= this.limits.maxDirectionBytes &&
-      sent + chunk.byteLength <= this.limits.maxTotalBytes &&
+      this.totalSent + chunk.byteLength <= this.limits.maxTotalBytes &&
       this.now() - startedAt < this.limits.maxDurationMs
     ) {
       await this.drain();
@@ -254,9 +300,18 @@ export class CoordinatedPerformance {
       }
       this.channel.send(chunk);
       sent += chunk.byteLength;
-      if (this.now() - startedAt >= this.limits.maxDurationMs) reason = 'duration cap';
+      this.totalSent += chunk.byteLength;
     }
+    const elapsedMs = this.now() - startedAt;
     if (this.cancelled) reason = 'cancelled';
+    else if (elapsedMs >= this.limits.maxDurationMs) reason = 'duration cap';
+    else if (sent + chunk.byteLength > this.limits.maxDirectionBytes)
+      reason =
+        elapsedMs < this.limits.minSampleDurationMs
+          ? `${formatByteLimit(this.limits.maxDirectionBytes)} safety cap before ${this.limits.minSampleDurationMs / 1_000} s target`
+          : 'byte safety cap';
+    else if (this.totalSent + chunk.byteLength > this.limits.maxTotalBytes)
+      reason = 'total byte safety cap';
     this.send({ perf: true, type: 'end', direction, reason });
   }
   private drain() {

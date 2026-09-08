@@ -27,7 +27,7 @@ test('automatic checks keep explicit intent pending and the mobile drawer access
 
   await expect(page.getByRole('heading', { name: 'Join room ABC234' })).toBeVisible();
   await expect(page.locator('.diagnostics-drawer')).toHaveCount(0);
-  await expect(page.getByText(/Checking device: \d+ of \d+/)).toBeVisible();
+  await expect(page.getByText(/Checking device: \d+ of \d+ · up to \d+s remaining/)).toBeVisible();
   await capture(page, 'mobile-invitation-checking');
 
   const join = page.getByRole('button', { name: 'Join room' });
@@ -145,6 +145,8 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   ]);
   await capture(host, 'desktop-connected-room');
   await expect(host.getByText(/Network checks: \d+ of \d+ complete/)).toBeVisible();
+  await expect(host.locator('.participant-slot--connected')).toHaveCount(2);
+  await expect(host.getByRole('heading', { name: 'Connection speed check' })).toBeVisible();
 
   await host.getByLabel('Write a message').fill('hello from host');
   await host.getByRole('button', { name: 'Send' }).click();
@@ -169,8 +171,18 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   expect(hostAttempt).toBe(guestAttempt);
 
   await openDiagnostics(host);
-  await host.getByText('Connection speed check', { exact: true }).click();
-  await expect(host.getByText(/Complete: RTT min\/median\/p95\/max/)).toBeVisible({
+  await host
+    .locator('.diagnostics-drawer')
+    .getByText('Connection speed check', { exact: true })
+    .click();
+  await expect(
+    host.locator('.diagnostics-drawer').getByText(/Complete: RTT min\/median\/p95\/max/),
+  ).toBeVisible({ timeout: 20_000 });
+  await host.getByLabel('Sample duration target (seconds)').fill('2');
+  await host.getByLabel('Maximum per direction (MiB)').fill('8');
+  await host.getByRole('button', { name: 'Restart speed check' }).click();
+  await expect(host.getByRole('button', { name: 'Restart speed check' })).toBeHidden();
+  await expect(host.getByRole('button', { name: 'Restart speed check' })).toBeVisible({
     timeout: 20_000,
   });
   await capture(host, 'desktop-connected-diagnostics');
@@ -198,8 +210,15 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   await capture(host, 'desktop-compact-report');
 
   await openDiagnostics(guest);
-  await guest.getByText('Connection speed check', { exact: true }).click();
-  await expect(guest.getByText(/(?:[1-9]|1\d|20)\/20 answered/)).toBeVisible();
+  await guest
+    .locator('.diagnostics-drawer')
+    .getByText('Connection speed check', { exact: true })
+    .click();
+  await expect(guest.getByLabel('Sample duration target (seconds)')).toHaveValue('2');
+  await expect(guest.getByLabel('Maximum per direction (MiB)')).toHaveValue('8');
+  await expect(
+    guest.locator('.diagnostics-drawer').getByText(/(?:[1-9]|1\d|20)\/20 answered/),
+  ).toBeVisible();
 
   await hostContext.close();
   await guestContext.close();
