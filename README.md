@@ -10,6 +10,26 @@ A local WebRTC data-channel diagnostic foundation. Run `npm install`, `npm run d
 
 `dist/client/` contains browser assets and `dist/server/index.js` is the Worker entrypoint. Production remains a Worker `fetch` handler backed by D1. Configure `DB`, `OWNER_ID`, and `ENVIRONMENT=production` only through hosting; no credentials belong in source. `x-dev-identity` is loopback development/test-only and production fails closed.
 
+## Optional Xirsys TURN
+
+The Worker can exchange a shared diagnostic access code for temporary Xirsys
+TURN credentials after room participant authorization. Configure all four
+runtime values; if any are absent, managed TURN fails closed and the app
+continues with direct/STUN diagnostics:
+
+```sh
+XIRSYS_IDENT='<xirsys-ident>' \
+XIRSYS_SECRET='<xirsys-secret>' \
+XIRSYS_CHANNEL='<xirsys-channel>' \
+DIAGNOSTIC_ACCESS_CODE='<long-random-shared-code>' \
+npm run dev
+```
+
+Never commit these values. In production, configure them as hosted runtime
+secrets/settings. The Xirsys secret and shared access code stay server-side;
+authorized browsers receive only temporary TURN credentials. TURN paths skip
+all speed-check traffic.
+
 ## Evidence limits
 
 Local browser smoke evidence is not NAT traversal, TURN, external STUN reachability, hosted D1, or platform-owner verification. Standard browser APIs cannot guarantee forced ICE-TCP or a specific candidate pair; those profiles are shown as unsupported/inconclusive rather than passed.

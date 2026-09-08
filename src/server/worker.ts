@@ -9,6 +9,7 @@ import {
   runIdSchema,
   buildProfiles,
 } from '../shared/domain.js';
+import { requestXirsysTurnCredentials, XirsysError } from './xirsys.js';
 import {
   DevelopmentIdentityAdapter,
   ProductionIdentityAdapter,
@@ -21,6 +22,10 @@ export interface Env {
   DB: D1Database;
   OWNER_ID?: string;
   ENVIRONMENT?: string;
+  XIRSYS_IDENT?: string;
+  XIRSYS_SECRET?: string;
+  XIRSYS_CHANNEL?: string;
+  DIAGNOSTIC_ACCESS_CODE?: string;
   /** Sites/Workers static asset binding, injected by the hosting platform. */
   ASSETS?: { fetch(request: Request): Promise<Response> };
 }
@@ -47,6 +52,7 @@ const endpointsSchema = z
       .strict(),
   )
   .max(9);
+const turnCredentialsRequestSchema = z.object({ accessCode: z.string().min(16).max(256) }).strict();
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   if (value && typeof value === 'object') {
@@ -64,6 +70,19 @@ const token = () => crypto.randomUUID().replaceAll('-', '');
 async function sha(value: string) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+async function accessCodeMatches(supplied: string, configured: string): Promise<boolean> {
+  const encode = new TextEncoder();
+  const [suppliedHash, configuredHash] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encode.encode(supplied)),
+    crypto.subtle.digest('SHA-256', encode.encode(configured)),
+  ]);
+  const left = new Uint8Array(suppliedHash);
+  const right = new Uint8Array(configuredHash);
+  let difference = left.length ^ right.length;
+  for (let index = 0; index < Math.max(left.length, right.length); index++)
+    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  return difference === 0;
 }
 async function body(request: Request): Promise<unknown> {
   const length = Number(request.headers.get('content-length') ?? 0);
@@ -122,6 +141,38 @@ export function createWorker(deps: Dependencies = {}) {
           if (!participant.success) return null;
           return repo.participant(participant.data, await sha(match[2] ?? ''));
         };
+        const turnCredentials = url.pathname.match(/^\/api\/rooms\/([^/]+)\/turn-credentials$/);
+        if (turnCredentials && request.method === 'POST') {
+          const access = await auth();
+          const room = roomCodeSchema.safeParse(turnCredentials[1]);
+          if (!access || !room.success || access.room_code !== room.data)
+            return json({ error: 'forbidden' }, 403);
+          if (!(await repo.roomStatus(room.data))) return json({ error: 'forbidden' }, 403);
+          const input = turnCredentialsRequestSchema.safeParse(await body(request));
+          if (!input.success) return json({ error: 'invalid TURN credential request' }, 400);
+          if (
+            !env.XIRSYS_IDENT ||
+            !env.XIRSYS_SECRET ||
+            !env.XIRSYS_CHANNEL ||
+            !env.DIAGNOSTIC_ACCESS_CODE ||
+            env.DIAGNOSTIC_ACCESS_CODE.length < 16
+          )
+            return json({ error: 'TURN credential service is not configured' }, 503);
+          if (!(await accessCodeMatches(input.data.accessCode, env.DIAGNOSTIC_ACCESS_CODE)))
+            return json({ error: 'forbidden' }, 403);
+          try {
+            return json(
+              await requestXirsysTurnCredentials({
+                ident: env.XIRSYS_IDENT,
+                secret: env.XIRSYS_SECRET,
+                channel: env.XIRSYS_CHANNEL,
+              }),
+            );
+          } catch (error) {
+            if (error instanceof XirsysError) return json({ error: error.message }, error.status);
+            throw error;
+          }
+        }
         const roomPath = url.pathname.match(/^\/api\/rooms\/([^/]+)$/);
         if (roomPath && request.method === 'GET') {
           const access = await auth();

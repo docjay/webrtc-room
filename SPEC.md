@@ -10,7 +10,7 @@ Build a two-device WebRTC data-channel demo with diagnostics before, during, and
 
 - Default public STUN: `stun:stun.cloudflare.com:3478`. Cloudflare documents this STUN service as free and unlimited. Label each device check and matrix hop with its credential-free server address so failures map to the exact configured endpoint. Permit editing/disabling endpoints through advanced configuration. Browsers may contact multiple configured custom URLs concurrently; do not promise ordered failover inside ICE.
 - STUN discovers mapped addresses; it is not a relay or a guarantee of connectivity.
-- TURN is unconfigured initially. Each device may paste a JSON string with an `iceServers` array using standard `urls`, `username`, and `credential` fields. Support TURN UDP, optional plain TCP, and TLS over TCP. Example:
+- TURN is unconfigured unless the hosted runtime supplies Xirsys integration secrets. When configured, each participant may enter the shared diagnostic access code locally; only an already-authorized room participant can exchange it through the Worker for temporary Xirsys credentials. The long-term Xirsys ident, secret, channel, and diagnostic access code remain server-side. Each device may alternatively paste a JSON string with an `iceServers` array using standard `urls`, `username`, and `credential` fields. Support TURN UDP, optional plain TCP, and TLS over TCP. Example:
 
 ```json
 {
@@ -28,7 +28,7 @@ Build a two-device WebRTC data-channel demo with diagnostics before, during, and
 }
 ```
 
-- TURN input augments configured STUN defaults. Validate schemes, ports, length, and structure; show a sanitized preview. Keep credentials in browser memory only, never in URLs, database records, exports, or browser persistent storage. Each device configures its own credentials.
+- TURN input augments configured STUN defaults. Validate schemes, ports, length, and structure; show a sanitized preview. Keep temporary credentials and the shared access code in browser memory only, never in URLs, database records, exports, or browser persistent storage. Refresh short-lived Xirsys credentials immediately before Xirsys-backed relay probes so peer wait time cannot leave stale credentials. Each device configures its own credentials.
 - Preflight can run without a second device. Probe each STUN endpoint and each configured TURN URL independently with a disposable peer connection, bounded timer, and cleanup. Report candidate gathering/allocation independently from actual peer connectivity.
 - The default connection policy and automatic matrix are defined below. Individual TURN probes isolate each URL. Tests requiring a relay on both devices require both devices to configure TURN; one-sided relay tests are distinct and use only the required side's credentials.
 - Display direct UDP, observed ICE-TCP, TURN UDP/TCP/TLS evidence separately. Candidate `protocol` and TURN `relayProtocol` represent different hops. Preserve raw supported fields; label unavailable fields rather than guessing.

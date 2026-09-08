@@ -15,6 +15,10 @@ available. Open the repository at the branch and commit recorded at the top of
 > preserve the existing Sites project identity, configure/verify the logical
 > `DB` binding, set `ENVIRONMENT=production`, and configure `OWNER_ID` from the
 > actual authenticated Sites dispatcher identity. Keep secrets out of Git.
+> If managed Xirsys TURN is being enabled, configure `XIRSYS_IDENT`,
+> `XIRSYS_SECRET`, `XIRSYS_CHANNEL`, and `DIAGNOSTIC_ACCESS_CODE` only through
+> hosted runtime secrets/settings; never paste their values into source,
+> reports, deployment logs, or chat.
 > Verify signed-out and non-owner admin rejection before verifying owner
 > list/detail/export access.
 >

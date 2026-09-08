@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { createWorker, type Env } from '../src/server/worker.js';
 import { sqliteD1 } from './sqlite-d1.js';
@@ -12,12 +12,12 @@ const schema = (
 ).join('\n');
 const context = { waitUntil: (promise: Promise<unknown>) => void promise.catch(() => undefined) };
 
-async function fixture() {
+async function fixture(env: Omit<Partial<Env>, 'DB'> = {}) {
   const DB = await sqliteD1(schema);
   const worker = createWorker();
   const request = (path: string, init?: RequestInit) =>
-    worker.fetch(new Request(`http://localhost${path}`, init), { DB }, context);
-  return { request };
+    worker.fetch(new Request(`http://localhost${path}`, init), { DB, ...env }, context);
+  return { DB, request };
 }
 
 async function credentials(request: (path: string, init?: RequestInit) => Promise<Response>) {
@@ -301,5 +301,205 @@ describe('worker room integration', () => {
         })
       ).status,
     ).toBe(403);
+  });
+
+  it('requires scoped participant authorization before TURN credential handling', async () => {
+    const { request } = await fixture();
+    const response = await request('/api/rooms/ABCDEFGH/turn-credentials', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accessCode: 'valid-access-code' }),
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'forbidden' });
+  });
+
+  it('rejects TURN credential issuance after the room expires', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const { DB, request } = await fixture({
+        XIRSYS_IDENT: 'test-ident',
+        XIRSYS_SECRET: 'test-secret',
+        XIRSYS_CHANNEL: 'test-channel',
+        DIAGNOSTIC_ACCESS_CODE: 'valid-access-code',
+      });
+      const { host, auth } = await credentials(request);
+      await DB.prepare('UPDATE rooms SET expires_at=0 WHERE code=?').bind(host.roomCode).run();
+      const response = await request(`/api/rooms/${host.roomCode}/turn-credentials`, {
+        method: 'POST',
+        headers: auth(host),
+        body: JSON.stringify({ accessCode: 'valid-access-code' }),
+      });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: 'forbidden' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('fails closed for missing Xirsys configuration and rejects malformed or invalid access codes', async () => {
+    const { request: unconfigured } = await fixture();
+    const { host, auth } = await credentials(unconfigured);
+    const path = `/api/rooms/${host.roomCode}/turn-credentials`;
+    const unavailable = await unconfigured(path, {
+      method: 'POST',
+      headers: auth(host),
+      body: JSON.stringify({ accessCode: 'valid-access-code' }),
+    });
+    expect(unavailable.status).toBe(503);
+    expect(await unavailable.json()).toEqual({
+      error: 'TURN credential service is not configured',
+    });
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const { request } = await fixture({
+        XIRSYS_IDENT: 'test-ident',
+        XIRSYS_SECRET: 'test-secret',
+        XIRSYS_CHANNEL: 'test-channel',
+        DIAGNOSTIC_ACCESS_CODE: 'valid-access-code',
+      });
+      const room = await credentials(request);
+      const malformed = await request(`/api/rooms/${room.host.roomCode}/turn-credentials`, {
+        method: 'POST',
+        headers: room.auth(room.host),
+        body: JSON.stringify({ accessCode: 1 }),
+      });
+      expect(malformed.status).toBe(400);
+      const invalid = await request(`/api/rooms/${room.host.roomCode}/turn-credentials`, {
+        method: 'POST',
+        headers: room.auth(room.host),
+        body: JSON.stringify({ accessCode: 'wrong-access-code' }),
+      });
+      expect(invalid.status).toBe(403);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('normalizes temporary Xirsys TURN credentials without exposing configuration', async () => {
+    let upstreamRequest: { url: string; init: RequestInit | undefined } | undefined;
+    const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+      upstreamRequest = {
+        url: typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url,
+        init,
+      };
+      return Promise.resolve(
+        Response.json({
+          v: {
+            iceServers: [
+              {
+                urls: [
+                  'turn:relay.example.test:3478?transport=udp',
+                  'turns:relay.example.test:443?transport=tcp',
+                ],
+                username: 'temporary-user',
+                credential: 'temporary-credential',
+              },
+              {
+                url: 'turn:legacy.example.test:3478?transport=udp',
+                username: 'temporary-user',
+                credential: 'temporary-credential',
+              },
+              {
+                urls: 'stun:stun.example.test:3478',
+              },
+            ],
+          },
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const { request } = await fixture({
+        XIRSYS_IDENT: 'test-ident',
+        XIRSYS_SECRET: 'test-secret',
+        XIRSYS_CHANNEL: 'channel with space',
+        DIAGNOSTIC_ACCESS_CODE: 'valid-access-code',
+      });
+      const { host, auth } = await credentials(request);
+      const response = await request(`/api/rooms/${host.roomCode}/turn-credentials`, {
+        method: 'POST',
+        headers: auth(host),
+        body: JSON.stringify({ accessCode: 'valid-access-code' }),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        iceServers: [
+          {
+            urls: ['turn:relay.example.test:3478?transport=udp'],
+            username: 'temporary-user',
+            credential: 'temporary-credential',
+          },
+          {
+            urls: ['turns:relay.example.test:443?transport=tcp'],
+            username: 'temporary-user',
+            credential: 'temporary-credential',
+          },
+          {
+            urls: ['turn:legacy.example.test:3478?transport=udp'],
+            username: 'temporary-user',
+            credential: 'temporary-credential',
+          },
+        ],
+      });
+      expect(upstreamRequest?.url).toBe('https://global.xirsys.net/_turn/channel%20with%20space');
+      expect(upstreamRequest?.init?.method).toBe('POST');
+      expect(new Headers(upstreamRequest?.init?.headers).get('authorization')).toBe(
+        'Basic dGVzdC1pZGVudDp0ZXN0LXNlY3JldA==',
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not expose malformed, failed, or timed-out Xirsys upstream responses', async () => {
+    const configuration = {
+      XIRSYS_IDENT: 'test-ident',
+      XIRSYS_SECRET: 'test-secret',
+      XIRSYS_CHANNEL: 'test-channel',
+      DIAGNOSTIC_ACCESS_CODE: 'valid-access-code',
+    };
+    const cases: Array<{
+      upstream: () => Promise<Response>;
+      expectedStatus: number;
+      expectedError: string;
+    }> = [
+      {
+        upstream: () => Promise.resolve(Response.json({ v: { iceServers: [{}] } })),
+        expectedStatus: 502,
+        expectedError: 'TURN credential service unavailable',
+      },
+      {
+        upstream: () => Promise.resolve(new Response('provider error', { status: 500 })),
+        expectedStatus: 502,
+        expectedError: 'TURN credential service unavailable',
+      },
+      {
+        upstream: () => Promise.reject(new DOMException('timed out', 'TimeoutError')),
+        expectedStatus: 504,
+        expectedError: 'TURN credential service timed out',
+      },
+    ];
+    for (const testCase of cases) {
+      vi.stubGlobal('fetch', vi.fn(testCase.upstream));
+      try {
+        const { request } = await fixture(configuration);
+        const { host, auth } = await credentials(request);
+        const response = await request(`/api/rooms/${host.roomCode}/turn-credentials`, {
+          method: 'POST',
+          headers: auth(host),
+          body: JSON.stringify({ accessCode: 'valid-access-code' }),
+        });
+        expect(response.status).toBe(testCase.expectedStatus);
+        expect(await response.json()).toEqual({ error: testCase.expectedError });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
   });
 });

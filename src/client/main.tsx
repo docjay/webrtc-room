@@ -28,6 +28,37 @@ import './styles.css';
 
 const defaults = ['stun:stun.cloudflare.com:3478'];
 const defaultStunSummary = 'Default STUN discovery server: stun.cloudflare.com:3478';
+function configuredIce(managed: IceConfig, customText: string): IceConfig {
+  const custom = customText.trim()
+    ? iceConfigSchema.parse(JSON.parse(customText) as unknown)
+    : { iceServers: [] };
+  return iceConfigSchema.parse({
+    iceServers: [
+      ...defaults.map((urls) => ({ urls })),
+      ...managed.iceServers,
+      ...custom.iceServers,
+    ],
+  });
+}
+
+function alignTemporaryTurnCredentials(reference: IceConfig, fresh: IceConfig): IceConfig {
+  const freshByUrl = new Map(
+    fresh.iceServers.flatMap((server) => {
+      const urls = typeof server.urls === 'string' ? [server.urls] : server.urls;
+      return urls.map((url) => [url, server] as const);
+    }),
+  );
+  return iceConfigSchema.parse({
+    iceServers: reference.iceServers.map((server) => {
+      const urls = typeof server.urls === 'string' ? [server.urls] : server.urls;
+      const replacement = freshByUrl.get(urls[0]!);
+      if (!replacement?.username || !replacement.credential)
+        throw new Error('Xirsys returned a different relay configuration');
+      return { urls, username: replacement.username, credential: replacement.credential };
+    }),
+  });
+}
+
 type MatrixRow = Profile & {
   outcome?: string;
   detail?: string;
@@ -168,6 +199,10 @@ function App() {
   const report = useMemo(() => new ReportBuffer(), []);
   const [draftIceText, setDraftIceText] = useState('');
   const [appliedIceText, setAppliedIceText] = useState('');
+  const [turnAccessCode, setTurnAccessCode] = useState('');
+  const [appliedTurnAccessCode, setAppliedTurnAccessCode] = useState('');
+  const [managedTurnConfig, setManagedTurnConfig] = useState<IceConfig>({ iceServers: [] });
+  const [applyingSettings, setApplyingSettings] = useState(false);
   const [configurationVersion, setConfigurationVersion] = useState(0);
   const [roomCode, setRoomCode] = useState(
     () => new URLSearchParams(location.search).get('room') ?? '',
@@ -195,21 +230,20 @@ function App() {
   const [uploadStatus, setUploadStatus] = useState<
     'pending' | 'saved' | 'upload-failed' | 'truncated'
   >('pending');
-  const appliedConfig = useMemo<IceConfig>(() => {
-    const custom = appliedIceText.trim()
-      ? iceConfigSchema.parse(JSON.parse(appliedIceText) as unknown)
-      : { iceServers: [] };
-    return iceConfigSchema.parse({
-      iceServers: [...defaults.map((urls) => ({ urls })), ...custom.iceServers],
-    });
-  }, [appliedIceText]);
+  const appliedConfig = useMemo(
+    () => configuredIce(managedTurnConfig, appliedIceText),
+    [appliedIceText, managedTurnConfig],
+  );
   const draftPreview = useMemo(() => {
     try {
       const custom = draftIceText.trim()
         ? iceConfigSchema.parse(JSON.parse(draftIceText) as unknown)
         : { iceServers: [] };
       const customServers = sanitizeIceConfig(custom);
-      if (!customServers.length) return defaultStunSummary;
+      const managedSummary = managedTurnConfig.iceServers.length
+        ? ` + ${managedTurnConfig.iceServers.length} managed Xirsys TURN endpoints`
+        : '';
+      if (!customServers.length) return `${defaultStunSummary}${managedSummary}`;
       const customSummary = customServers
         .map((server) =>
           server.kind === 'turn'
@@ -217,11 +251,11 @@ function App() {
             : `STUN discovery over ${server.transports.join('/')}`,
         )
         .join(', ');
-      return `${defaultStunSummary} + ${customSummary}`;
+      return `${defaultStunSummary}${managedSummary} + ${customSummary}`;
     } catch {
       return 'Fix the JSON before applying';
     }
-  }, [draftIceText]);
+  }, [draftIceText, managedTurnConfig]);
   const checkController = useRef<DeviceCheckController | null>(null);
   if (!checkController.current) {
     checkController.current = new DeviceCheckController({
@@ -424,7 +458,7 @@ function App() {
       return;
     startChecks(Boolean(credentials));
   }, [credentials, startChecks]);
-  const applySettings = useCallback(() => {
+  const applySettings = useCallback(async () => {
     let parsed: IceConfig;
     try {
       parsed = draftIceText.trim()
@@ -444,21 +478,54 @@ function App() {
       )
     )
       return;
+    setApplyingSettings(true);
+    let nextManagedTurn: IceConfig = turnAccessCode.trim() ? managedTurnConfig : { iceServers: [] };
+    try {
+      if (credentials && turnAccessCode.trim())
+        nextManagedTurn = await api.turnCredentials(credentials, turnAccessCode);
+      configuredIce(nextManagedTurn, draftIceText);
+    } catch (turnError) {
+      setFieldError(
+        `Could not apply network settings: ${turnError instanceof Error ? turnError.message : 'unknown error'}`,
+      );
+      setApplyingSettings(false);
+      return;
+    }
     if (credentials) tearDownAttempt(true);
     setFieldError('');
     setMain('Checking this device');
+    setManagedTurnConfig(nextManagedTurn);
+    setAppliedTurnAccessCode(nextManagedTurn.iceServers.length ? turnAccessCode.trim() : '');
     setAppliedIceText(draftIceText);
     setConfigurationVersion((value) => value + 1);
     setError('');
-  }, [credentials, draftIceText, tearDownAttempt]);
+    setApplyingSettings(false);
+  }, [credentials, draftIceText, managedTurnConfig, tearDownAttempt, turnAccessCode]);
+
+  const activateManagedTurn = async (value: Credentials) => {
+    if (!turnAccessCode.trim()) return;
+    try {
+      const turnConfig = await api.turnCredentials(value, turnAccessCode);
+      configuredIce(turnConfig, appliedIceText);
+      setManagedTurnConfig(turnConfig);
+      setAppliedTurnAccessCode(turnAccessCode.trim());
+      setConfigurationVersion((version) => version + 1);
+      record('Xirsys TURN credentials activated', 'success');
+    } catch (turnError) {
+      setFieldError(
+        `Room access succeeded, but Xirsys TURN was not activated: ${turnError instanceof Error ? turnError.message : 'unknown error'}`,
+      );
+    }
+  };
 
   const createRoom = async () => {
     if (submitting) return;
     setSubmitting(true);
     try {
       const value = await api.createRoom();
-      setCredentials(value);
       await api.registerRun(value, report.runId);
+      await activateManagedTurn(value);
+      setCredentials(value);
       setRoomCode(value.roomCode);
       history.replaceState(null, '', `?room=${value.roomCode}`);
       setMain('Waiting for the other device');
@@ -476,8 +543,9 @@ function App() {
     setSubmitting(true);
     try {
       const value = await api.joinRoom(roomCode);
-      setCredentials(value);
       await api.registerRun(value, report.runId);
+      await activateManagedTurn(value);
+      setCredentials(value);
       setRoomCode(value.roomCode);
       setMain('Waiting for the other device');
       record('room joined', 'success');
@@ -560,6 +628,9 @@ function App() {
       if (/forbidden|expired|not found/i.test(message)) {
         tearDownAttempt(false);
         setCredentials(null);
+        setManagedTurnConfig({ iceServers: [] });
+        setTurnAccessCode('');
+        setAppliedTurnAccessCode('');
         setMain('Disconnected');
         setError(
           'This room expired or this device no longer has access. Create a new room or enter a current invitation code.',
@@ -641,6 +712,9 @@ function App() {
       { row: MatrixRow; channel: RTCDataChannel; close: () => void }
     >();
     const completed = new Map<string, MatrixRow>();
+    const managedEndpointIds = new Set(
+      sanitizeIceConfig(managedTurnConfig).map((endpoint) => endpoint.id),
+    );
     let selectedConnection:
       { row: MatrixRow; channel: RTCDataChannel; close: () => void } | undefined;
     const activateEligibleConnection = () => {
@@ -688,20 +762,36 @@ function App() {
                 : row,
             ),
           );
-          const result = await runPairedProbe({
-            api,
-            credentials: activeCredentials,
-            attempt: issued,
-            profile,
-            probeId: `prb_${issued.id.slice(4, 24)}${String(current).padStart(2, '0')}`,
-            peerId:
-              activeCredentials.participantId === room.hostParticipantId
-                ? room.guestParticipantId!
-                : room.hostParticipantId,
-            host: activeCredentials.participantId === room.hostParticipantId,
-            config: appliedConfig,
-            cancelled: () => cancelled.current || suite !== suiteGeneration.current,
-          });
+          const host = activeCredentials.participantId === room.hostParticipantId;
+          let probeConfig = appliedConfig;
+          let result: Awaited<ReturnType<typeof runPairedProbe>>;
+          try {
+            if (managedEndpointIds.has(host ? profile.a : profile.b)) {
+              const fresh = await api.turnCredentials(activeCredentials, appliedTurnAccessCode);
+              probeConfig = configuredIce(
+                alignTemporaryTurnCredentials(managedTurnConfig, fresh),
+                appliedIceText,
+              );
+            }
+            result = await runPairedProbe({
+              api,
+              credentials: activeCredentials,
+              attempt: issued,
+              profile,
+              probeId: `prb_${issued.id.slice(4, 24)}${String(current).padStart(2, '0')}`,
+              peerId: host ? room.guestParticipantId! : room.hostParticipantId,
+              host,
+              config: probeConfig,
+              cancelled: () => cancelled.current || suite !== suiteGeneration.current,
+            });
+          } catch {
+            result = {
+              outcome: 'failure',
+              detail: 'temporary Xirsys credentials could not be refreshed',
+              elapsedMs: window.performance.now() - startedAt,
+              close: () => undefined,
+            };
+          }
           if (suite !== suiteGeneration.current) {
             result.close();
             return;
@@ -837,6 +927,9 @@ function App() {
     tearDownAttempt(false);
     await (credentials ? api.leave(credentials) : Promise.resolve()).catch(() => undefined);
     setCredentials(null);
+    setManagedTurnConfig({ iceServers: [] });
+    setTurnAccessCode('');
+    setAppliedTurnAccessCode('');
     setMessages([]);
     setMain('Disconnected');
     setError('');
@@ -1128,9 +1221,15 @@ function App() {
     },
     advancedSettings: {
       draft: draftIceText,
+      turnAccessCode,
+      turnStatus: managedTurnConfig.iceServers.length
+        ? 'Xirsys TURN is active for this tab.'
+        : credentials
+          ? 'Enter the shared code and apply settings to activate Xirsys TURN.'
+          : 'Enter the shared code before creating or joining a room.',
       error: fieldError,
       preview: draftPreview,
-      applying: false,
+      applying: applyingSettings,
     },
     performance: {
       preference: automaticBandwidthEnabled
@@ -1242,7 +1341,11 @@ function App() {
             setDraftIceText(value);
             setFieldError('');
           },
-          onApplyAdvancedSettings: applySettings,
+          onTurnAccessCodeChange: (value) => {
+            setTurnAccessCode(value);
+            setFieldError('');
+          },
+          onApplyAdvancedSettings: () => void applySettings(),
           onCopyReport: () => void copyCompleteReport(),
           onDownloadReport: () => downloadReport(completeSnapshot()),
           onShowCompactReport: () => undefined,

@@ -21,6 +21,16 @@
 - Selected TURN relay paths now skip RTT/goodput speed checks entirely. They
   still verify selected-pair evidence, bidirectional application traffic, and
   chat without spending a capped relay allowance on throughput measurement.
+- Added optional managed Xirsys TURN issuance. The Worker requires both scoped
+  room-participant authorization and a shared diagnostic access code, keeps
+  long-term Xirsys values server-side, validates the upstream response, and
+  returns only temporary TURN credentials. The client retains the access code
+  and credentials only in tab memory and refreshes credentials immediately
+  before each Xirsys-backed relay probe.
+- Expired rooms cannot issue credentials even while an old participant record
+  awaits cleanup. Draft access-code edits cannot alter an active relay session,
+  and aggregate default, managed, and custom ICE limits are validated before
+  state changes rather than during rendering.
 - Diagnosed a real two-iPhone Safari failure from paired reports: both devices
   passed HTTPS, WebRTC API, signaling reachability, host gathering, and STUN
   gathering, but every paired row ended at the 30-second data-channel deadline.
@@ -40,10 +50,15 @@
   bundled Worker entrypoint. The staged candidate is 544 KiB and contains
   `dist/server/index.js`, `dist/client/index.html` plus hashed assets, and exact
   copies of both ordered D1 migrations under `dist/.openai/drizzle/`.
-- `npm run check` passed formatting, strict TypeScript, ESLint, 38
+- `npm run check` passed formatting, strict TypeScript, ESLint, 45
   unit/integration tests in 7 files, and both production builds.
-- `npm run test:browser` passed all 4 Chromium tests in 2.0 minutes using real
-  local Worker signaling and two-context WebRTC.
+- `npm run test:browser` passed all 5 enabled Chromium tests, including managed
+  TURN access-code privacy and real two-context WebRTC; the opt-in WebKit
+  device test remained skipped by its existing environment gate.
+- Delegation: Terra medium implemented the bounded Worker/API foundation. The
+  root integrated the client lifecycle and tests. A final Sol-medium review
+  found expired-room issuance, aggregate ICE validation, and draft/applied
+  access-code lifecycle risks; all three were corrected before validation.
 - Artifact inspection confirmed one server bundle, no external ESM imports,
   both expected client assets, and byte-identical staged migrations.
 - No known local implementation defects remain. Codex owns the existing Sites

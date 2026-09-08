@@ -37,6 +37,11 @@
 - **TURN quota protection pending deployment:** selected TURN relay paths skip
   RTT/goodput speed checks entirely while retaining connectivity verification,
   bidirectional application pings, and chat.
+- **Xirsys integration pending deployment/configuration:** an authorized room
+  participant can exchange the shared diagnostic access code for temporary
+  Xirsys credentials through the Worker. Long-term Xirsys values never reach
+  the browser, D1, reports, logs, URLs, or Git. The client refreshes temporary
+  credentials immediately before each Xirsys-backed relay probe.
 - Safari review terminology is incorporated: advanced settings identify the
   sole Cloudflare STUN discovery server, show an optional valid STUN/TURN JSON
   example and explain both server roles, while the bandwidth preference is
@@ -131,7 +136,9 @@ test:browser` passed 4 Chromium tests in 42.2 seconds using actual local
    `dist/.openai/drizzle/`.
 4. Configure or verify the logical `DB` binding, `ENVIRONMENT=production`, and
    secret `OWNER_ID`. Derive the owner value from the actual authenticated Sites
-   dispatcher identity; do not infer it from local tests or commit it.
+   dispatcher identity; do not infer it from local tests or commit it. To enable
+   managed Xirsys TURN, also configure `XIRSYS_IDENT`, `XIRSYS_SECRET`,
+   `XIRSYS_CHANNEL`, and `DIAGNOSTIC_ACCESS_CODE` as hosted secrets/settings.
 5. Verify signed-out and non-owner `/api/admin/*` requests return 403, then
    verify authenticated owner list, detail, and export access.
 6. Deploy with Sites tools, apply/verify both D1 migrations, and check hosted
@@ -304,11 +311,19 @@ Hosted configuration now declares the Sites project ID and logical D1 binding:
 - `ENVIRONMENT=production`: hosted runtime value.
 - `OWNER_ID`: secret platform runtime value set to the verified single owner;
   it is never committed or exposed to the client.
+- `XIRSYS_IDENT`: server-only Xirsys account identifier.
+- `XIRSYS_SECRET`: server-only Xirsys API secret.
+- `XIRSYS_CHANNEL`: Xirsys channel used for temporary TURN issuance.
+- `DIAGNOSTIC_ACCESS_CODE`: long random code shared only with invited
+  diagnostic participants.
 
 The local development contract remains:
 
 - `LOCAL_OWNER_ID=<LOCAL_OWNER_ID>`: development-only loopback owner value;
   leave unset unless explicitly testing `/admin` locally.
+- The four Xirsys values above may be supplied as process environment variables
+  for local integration testing; leave them unset for the fail-closed
+  direct/STUN-only mode.
 
 No secrets, TURN credentials, database IDs, deployed URLs, or owner identifiers
 are recorded here. The existing non-secret Sites project ID is intentionally

@@ -37,7 +37,15 @@ const server = createServer(async (request, response) => {
         headers: request.headers,
         body: ['GET', 'HEAD'].includes(request.method ?? '') ? undefined : Buffer.concat(chunks),
       }),
-      { DB: db, ENVIRONMENT: 'development', OWNER_ID: process.env.LOCAL_OWNER_ID },
+      {
+        DB: db,
+        ENVIRONMENT: 'development',
+        OWNER_ID: process.env.LOCAL_OWNER_ID,
+        XIRSYS_IDENT: process.env.XIRSYS_IDENT,
+        XIRSYS_SECRET: process.env.XIRSYS_SECRET,
+        XIRSYS_CHANNEL: process.env.XIRSYS_CHANNEL,
+        DIAGNOSTIC_ACCESS_CODE: process.env.DIAGNOSTIC_ACCESS_CODE,
+      },
       { waitUntil: (promise) => void promise.catch(() => undefined) },
     );
     response.writeHead(result.status, Object.fromEntries(result.headers));

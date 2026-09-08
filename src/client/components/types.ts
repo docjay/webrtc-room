@@ -119,6 +119,8 @@ export interface DiagnosticsViewModel {
   report: ReportViewModel;
   advancedSettings: {
     draft: string;
+    turnAccessCode: string;
+    turnStatus: string;
     error?: string;
     preview: string;
     applying?: boolean;
@@ -136,6 +138,7 @@ export interface DiagnosticsCallbacks {
   onPerformanceMaxDirectionMiBChange: (mebibytes: number) => void;
   onRestartPerformance?: () => void;
   onAdvancedDraftChange: (value: string) => void;
+  onTurnAccessCodeChange: (value: string) => void;
   onApplyAdvancedSettings: () => void;
   onCopyReport: () => void;
   onDownloadReport: () => void;

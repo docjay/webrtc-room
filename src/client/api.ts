@@ -2,11 +2,12 @@ import { z } from 'zod';
 import {
   createId,
   attemptIdSchema,
+  iceConfigSchema,
   participantIdSchema,
   probeIdSchema,
   roomCodeSchema,
 } from '../shared/domain.js';
-import type { DiagnosticEvent } from '../shared/domain.js';
+import type { DiagnosticEvent, IceConfig } from '../shared/domain.js';
 
 const credentialsSchema = z
   .object({
@@ -84,6 +85,14 @@ export class ApiClient {
       `/api/rooms/${credentials.roomCode}/leave`,
       z.object({ left: z.boolean() }).strict(),
       { method: 'POST', body: '{}' },
+      credentials,
+    );
+  }
+  turnCredentials(credentials: Credentials, accessCode: string): Promise<IceConfig> {
+    return this.request(
+      `/api/rooms/${credentials.roomCode}/turn-credentials`,
+      iceConfigSchema,
+      { method: 'POST', body: JSON.stringify({ accessCode }) },
       credentials,
     );
   }

@@ -284,6 +284,21 @@ export function DiagnosticsDrawer({ open, model, callbacks, openerRef }: Diagnos
           </summary>
           <div className="diagnostic-group__content">
             <label className="field">
+              <span>Xirsys relay access code</span>
+              <input
+                autoComplete="off"
+                onChange={(event) => callbacks.onTurnAccessCodeChange(event.target.value)}
+                placeholder="Optional shared access code"
+                spellCheck={false}
+                type="password"
+                value={model.advancedSettings.turnAccessCode}
+              />
+            </label>
+            <p>
+              {model.advancedSettings.turnStatus} The code stays only in this tab and is exchanged
+              for temporary credentials after room authorization.
+            </p>
+            <label className="field">
               <span>Optional STUN/TURN server JSON</span>
               <textarea
                 aria-describedby={
