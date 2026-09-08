@@ -31,8 +31,11 @@
 - **Endpoint labels pending deployment:** device checks, matrix rows, event
   messages, compact failures, and exported matrix results identify each
   credential-free STUN/TURN server address. Credentials remain excluded.
+- **Default endpoint change pending deployment:** Google
+  `stun.l.google.com:19302` is the sole built-in STUN endpoint; custom
+  STUN/TURN configuration remains available.
 - Safari review terminology is incorporated: advanced settings identify the
-  two default STUN discovery servers, show an optional valid STUN/TURN JSON
+  sole Google STUN discovery server, show an optional valid STUN/TURN JSON
   example and explain both server roles, while the bandwidth preference is
   presented as a bounded connection speed check. The stop action is visible
   only while that traffic is running.
@@ -73,10 +76,10 @@
   expired room authorization. On stale authorization the client closes the dead
   attempt and returns to create/join controls with an actionable explanation.
 - **Verification:** `npm run check` passed with formatting, strict TypeScript,
-  ESLint, 38 Vitest tests, client build, and Worker build. `npm run
-test:browser` passed 4 Chromium tests in 2.0 minutes using actual local
+  ESLint, 40 Vitest tests, client build, and Worker build. `npm run
+test:browser` passed 4 Chromium tests in 42.2 seconds using actual local
   Worker signaling and RTC data channels: automatic checks and intent
-  withdrawal, responsive keyboard drawer behavior, 16/16 terminal matrix
+  withdrawal, responsive keyboard drawer behavior, 9/9 terminal matrix
   rows, bidirectional chat, common attempt IDs, complete clipboard report,
   configurable participant-coordinated performance restart, connected peer
   markers, compact summary, expired-room recovery, and guest-originated shared

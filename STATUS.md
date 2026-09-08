@@ -15,7 +15,9 @@
 - Device checks, connection-path rows, event messages, compact failures, and
   exported matrix results now name the credential-free STUN/TURN server address
   rather than exposing only an indexed transport ID. This makes a failed result
-  attributable to Azure, Google, or a specific custom endpoint.
+  attributable to Google or a specific custom endpoint.
+- Google `stun.l.google.com:19302` is the sole built-in STUN server; users can
+  still add or replace endpoints through advanced configuration.
 - Diagnosed a real two-iPhone Safari failure from paired reports: both devices
   passed HTTPS, WebRTC API, signaling reachability, host gathering, and STUN
   gathering, but every paired row ended at the 30-second data-channel deadline.
@@ -58,7 +60,7 @@
   configuration Apply, device recheck, performance preference, complete local
   report actions, and a real compact summary.
 - Incorporated Safari review feedback: the advanced-settings summary now
-  explains the two default STUN discovery servers, the optional JSON field has
+  identifies the default STUN discovery server, the optional JSON field has
   a valid greyed example plus a plain-language STUN/TURN explanation,
   "automatic bandwidth" is now described as a bounded connection speed check,
   and its stop control appears only while test traffic is active.
@@ -114,7 +116,7 @@
 - `npm run test:browser` passed in Chromium: 4 tests in 2.0 minutes. It covered
   automatic invitation checks and pending-intent withdrawal, 390px modal and
   1440px non-modal drawer behavior with no horizontal overflow, actual
-  Worker-signaled two-context WebRTC, 16/16 terminal matrix rows, bidirectional
+  Worker-signaled two-context WebRTC, 9/9 terminal matrix rows, bidirectional
   chat, synchronized report IDs/content, bounded performance, compact report,
   connected peer markers, synchronized configurable speed-check restart,
   expired-room recovery, and a guest-originated retry observed by both peers.

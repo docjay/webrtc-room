@@ -1,6 +1,6 @@
 # WebRTC Room diagnostics
 
-A local WebRTC data-channel diagnostic foundation. Run `npm install`, `npm run dev`, then open the printed localhost URL. Run preflight on each device before creating/joining a room. Default Azure and Google STUN checks are independent; completed probes unlock valid room controls even when network endpoints time out.
+A local WebRTC data-channel diagnostic foundation. Run `npm install`, `npm run dev`, then open the printed localhost URL. Run preflight on each device before creating/joining a room. The default Google STUN endpoint is checked independently; completed probes unlock valid room controls even when network endpoints time out.
 
 ## Commands
 

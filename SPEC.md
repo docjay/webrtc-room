@@ -8,8 +8,7 @@ Build a two-device WebRTC data-channel demo with diagnostics before, during, and
 
 ## ICE configuration and probes
 
-- Default STUN: `stun:stun.azure.com:3478`, as requested. Its current operation must be validated; official Microsoft documentation establishing general public service support has not been located. No availability promise is assumed.
-- Secondary public STUN: `stun:stun.l.google.com:19302`, tested independently alongside Azure on every diagnostic run, and available as a fallback for connection setup. Label each device check and matrix hop with its credential-free server address so failures map to the exact configured endpoint; report each result separately and permit editing/disabling endpoints. Browsers may contact multiple configured URLs concurrently; do not promise ordered failover inside ICE.
+- Default public STUN: `stun:stun.l.google.com:19302`. Label each device check and matrix hop with its credential-free server address so failures map to the exact configured endpoint. Permit editing/disabling endpoints through advanced configuration. Browsers may contact multiple configured custom URLs concurrently; do not promise ordered failover inside ICE.
 - STUN discovers mapped addresses; it is not a relay or a guarantee of connectivity.
 - TURN is unconfigured initially. Each device may paste a JSON string with an `iceServers` array using standard `urls`, `username`, and `credential` fields. Support TURN UDP, optional plain TCP, and TLS over TCP. Example:
 

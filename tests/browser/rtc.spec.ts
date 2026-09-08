@@ -53,7 +53,6 @@ test('automatic checks keep explicit intent pending and the mobile drawer access
   await page.getByText('Device checks', { exact: true }).click();
   await expect(page.getByText('TURN relay-only testing')).toBeVisible();
   await expect(page.getByText('Direct ICE-TCP isolated testing')).toBeVisible();
-  await expect(page.getByText('STUN mapped-address discovery — stun.azure.com:3478')).toBeVisible();
   await expect(
     page.getByText('STUN mapped-address discovery — stun.l.google.com:19302'),
   ).toBeVisible();
@@ -209,8 +208,8 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   };
   expect(copied.runId).toMatch(/^run_/);
   expect(copied.attemptId).toBe(hostAttempt);
-  expect(copied.matrix).toHaveLength(16);
-  expect(copied.matrix.some((row) => row.a.includes('STUN stun.azure.com:3478'))).toBe(true);
+  expect(copied.matrix).toHaveLength(9);
+  expect(copied.matrix.some((row) => row.a.includes('STUN stun.l.google.com:19302'))).toBe(true);
   expect(copied.matrix.some((row) => row.b.includes('STUN stun.l.google.com:19302'))).toBe(true);
   const passedStunRows = copied.matrix.filter(
     (row) => row.id.includes('stun-') && row.outcome === 'pass',

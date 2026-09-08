@@ -25,7 +25,8 @@ import {
 } from './performance.js';
 import './styles.css';
 
-const defaults = ['stun:stun.azure.com:3478', 'stun:stun.l.google.com:19302'];
+const defaults = ['stun:stun.l.google.com:19302'];
+const defaultStunSummary = 'Default STUN discovery server: stun.l.google.com:19302';
 type MatrixRow = Profile & {
   outcome?: string;
   detail?: string;
@@ -207,7 +208,7 @@ function App() {
         ? iceConfigSchema.parse(JSON.parse(draftIceText) as unknown)
         : { iceServers: [] };
       const customServers = sanitizeIceConfig(custom);
-      if (!customServers.length) return `${defaults.length} default STUN discovery servers`;
+      if (!customServers.length) return defaultStunSummary;
       const customSummary = customServers
         .map((server) =>
           server.kind === 'turn'
@@ -215,7 +216,7 @@ function App() {
             : `STUN discovery over ${server.transports.join('/')}`,
         )
         .join(', ');
-      return `${defaults.length} default STUN discovery servers + ${customSummary}`;
+      return `${defaultStunSummary} + ${customSummary}`;
     } catch {
       return 'Fix the JSON before applying';
     }
