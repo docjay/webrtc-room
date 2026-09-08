@@ -86,8 +86,15 @@ export async function probeIce(
       }
       resolvedOptions.signal?.addEventListener('abort', cancelled, { once: true });
       connection.onicecandidate = ({ candidate }) => {
-        if (candidate) candidates.push(normalizeRtcIceCandidate(candidate));
-        else {
+        if (candidate) {
+          const evidence = normalizeRtcIceCandidate(candidate);
+          candidates.push(evidence);
+          if (
+            (expectedType && evidence.type === expectedType) ||
+            (!expectedType && candidates.length)
+          )
+            settle('success');
+        } else {
           settle(
             expectedType
               ? candidates.some((value) => value.type === expectedType)

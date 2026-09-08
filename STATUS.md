@@ -2,6 +2,16 @@
 
 ## Current milestone - Codex Sites deployment candidate, 2026-09-08
 
+- Physical two-iPhone Safari validation passed after deployment of the serialized
+  polling fix. The supplied hosted report selected direct host/UDP, verified
+  bidirectional application traffic, passed five paired STUN-assisted rows with
+  srflx evidence, answered 20/20 RTT probes, and measured both goodput
+  directions. The live hosted asset matched the local fixed bundle.
+- The same report exposed an evidence/reporting issue: one isolated STUN check
+  timed out after already gathering srflx evidence, while its paired rows later
+  passed. Endpoint preflight now succeeds as soon as the required host, srflx,
+  or relay candidate appears instead of depending on Safari to emit a
+  gathering-complete event.
 - Diagnosed a real two-iPhone Safari failure from paired reports: both devices
   passed HTTPS, WebRTC API, signaling reachability, host gathering, and STUN
   gathering, but every paired row ended at the 30-second data-channel deadline.

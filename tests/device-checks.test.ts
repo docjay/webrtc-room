@@ -175,6 +175,35 @@ describe('device checks', () => {
     expect(timeout.outcome).toBe('timeout');
   });
 
+  it('passes as soon as required candidate evidence appears without gathering-complete', async () => {
+    const candidateWithoutCompletion = () => {
+      let handler: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+      return {
+        set onicecandidate(value: ((event: RTCPeerConnectionIceEvent) => void) | null) {
+          handler = value;
+        },
+        createDataChannel: vi.fn(),
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: '' }),
+        setLocalDescription: vi.fn().mockImplementation(() => {
+          handler?.({
+            candidate: { type: 'srflx', protocol: 'udp' },
+          } as unknown as RTCPeerConnectionIceEvent);
+          return Promise.resolve();
+        }),
+        close: vi.fn(),
+      } as unknown as RTCPeerConnection;
+    };
+    const result = await probeIce('stun:stun.example:3478', {
+      rtcFactory: candidateWithoutCompletion,
+      timeoutMs: 1,
+    });
+
+    expect(result.outcome).toBe('success');
+    expect(result.candidates).toEqual([
+      expect.objectContaining({ type: 'srflx', protocol: 'udp' }),
+    ]);
+  });
+
   it('normalizes browser candidates and stats records through separate faithful inputs', () => {
     expect(
       normalizeRtcIceCandidate({ type: 'srflx', protocol: 'udp', address: 'host.local' }),

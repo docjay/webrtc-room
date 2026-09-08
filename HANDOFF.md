@@ -12,12 +12,22 @@
   explicit, messaging becomes primary when a verified channel opens, and
   technical evidence remains available through an accessible responsive
   drawer and complete local report.
-- **Pending redeployment:** two same-Wi-Fi iPhone Safari reports exposed
+- **Resolved iOS signaling incident:** two same-Wi-Fi iPhone Safari reports exposed
   overlapping per-probe signaling polls. Slower out-of-order responses could
   regress the cursor and replay negotiation messages, while failure was masked
   as a 30-second data-channel timeout. Polls are now serialized and signaling
-  failures reject the open wait immediately. The hosted site must be rebuilt
-  and redeployed from the new source commit before the phones retest.
+  failures reject the open wait immediately. That fix was deployed before the
+  successful physical iOS result below.
+- **Physical iOS result:** after that redeployment, a supplied two-iPhone Safari
+  run connected over direct host/UDP, verified bidirectional application
+  traffic, passed five paired STUN rows with srflx evidence, completed 20/20 RTT
+  probes, and measured goodput in both directions. The hosted asset matched the
+  serialized-polling build.
+- **New accuracy fix pending deployment:** Safari gathered srflx evidence for
+  one isolated STUN probe but did not emit gathering-complete before its
+  deadline, producing a false timeout even though paired rows passed. Isolated
+  probes now succeed immediately when their required host/srflx/relay evidence
+  appears.
 - Safari review terminology is incorporated: advanced settings identify the
   two default STUN discovery servers, show an optional valid STUN/TURN JSON
   example and explain both server roles, while the bandwidth preference is
