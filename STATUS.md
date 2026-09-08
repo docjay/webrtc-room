@@ -40,12 +40,13 @@
   per-direction results. Participant markers use explicit semantic state, so
   both devices are green after connection instead of coloring only the current
   device.
-- Reworked the speed check into an adaptive sample: a configurable 1–10 second
-  target defaults to 3 seconds, while a configurable 8–256 MiB safety ceiling
-  defaults to 100 MiB per direction. The byte ceiling remains authoritative
-  and short fast-link samples are labeled cap-limited. Either participant can
-  restart the check; the initiator's selected limits are synchronized before
-  both peers rerun it.
+- Reworked the speed check into an adaptive measurement: a configurable 1–10
+  second test length defaults to 3 seconds, while a configurable 8–256 MiB safety
+  ceiling defaults to 100 MiB per direction. The byte ceiling remains
+  authoritative, short fast-link measurements are labeled cap-limited, and
+  every directional result shows its receiver-measured transfer time. Either
+  participant can restart the check; the initiator's selected limits are
+  synchronized before both peers rerun it.
 - Preserved the full paired connectivity matrix and Workers/D1/Sites/auth
   boundaries. Either participant can request one idempotent shared retry.
   Automatic bandwidth traffic begins only after the matrix and is skipped when

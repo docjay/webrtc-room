@@ -964,7 +964,7 @@ function App() {
               ? {
                   results: performanceDirections.map(
                     (result) =>
-                      `${result.direction}: ${result.mbps?.toFixed(2) ?? '—'} Mbps over ${(result.bytes / (1024 * 1024)).toFixed(1)} MiB (${result.reason})`,
+                      `${result.direction}: ${result.mbps?.toFixed(2) ?? '—'} Mbps over ${(result.bytes / (1024 * 1024)).toFixed(1)} MiB in ${(result.elapsedMs / 1_000).toFixed(2)} s (${result.reason})`,
                   ),
                 }
               : {}),
@@ -1110,7 +1110,7 @@ function App() {
       preference: automaticBandwidthEnabled
         ? 'On for this device; either participant can turn it off'
         : 'Off for this device; no automatic speed traffic will run',
-      budget: `Target ${performanceSampleDurationSeconds} seconds; up to ${performanceMaxDirectionMiB} MiB per direction and ${performanceMaxDirectionMiB * 2} MiB total; never more than ${Math.max(5, performanceSampleDurationSeconds)} seconds per direction`,
+      budget: `Up to ${performanceMaxDirectionMiB} MiB per direction and ${performanceMaxDirectionMiB * 2} MiB total; configured for ${performanceSampleDurationSeconds} seconds per direction`,
       status: `${performance}${performanceRemainingMs ? ` · up to ${formatRemaining(performanceRemainingMs)} remaining` : ''}`,
       automaticBandwidthEnabled,
       sampleDurationSeconds: performanceSampleDurationSeconds,
@@ -1121,7 +1121,7 @@ function App() {
         performance !== 'Not started',
       directions: performanceDirections.map((result) => ({
         direction: result.direction,
-        result: `${result.mbps?.toFixed(2) ?? '—'} Mbps, ${result.bytes} bytes (${result.reason})`,
+        result: `${result.mbps?.toFixed(2) ?? '—'} Mbps, ${(result.bytes / (1024 * 1024)).toFixed(1)} MiB in ${(result.elapsedMs / 1_000).toFixed(2)} s (${result.reason})`,
       })),
     },
     groups: [

@@ -215,7 +215,7 @@ export function DiagnosticsDrawer({ open, model, callbacks, openerRef }: Diagnos
             </label>
             <div className="performance-settings">
               <label className="field">
-                <span>Sample duration target (seconds)</span>
+                <span>Test length (seconds)</span>
                 <input
                   min="1"
                   max="10"
@@ -245,10 +245,7 @@ export function DiagnosticsDrawer({ open, model, callbacks, openerRef }: Diagnos
                 />
               </label>
             </div>
-            <p>
-              The duration is a target, not a promise. A fast connection stops at the traffic
-              ceiling and is labeled cap-limited.
-            </p>
+            <p>A fast connection may finish sooner if it reaches the traffic limit.</p>
             {model.performance.directions && (
               <ul className="check-list">
                 {model.performance.directions.map((direction) => (

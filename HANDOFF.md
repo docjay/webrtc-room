@@ -29,7 +29,7 @@
   predecessors still fail.
 - Automatic performance preference is synchronized over the selected ordered
   channel. Either peer's opt-out prevents RTT/goodput traffic. The adaptive
-  sample target defaults to 3 seconds and 100 MiB per direction; both limits
+  test length defaults to 3 seconds and 100 MiB per direction; both limits
   are configurable in Diagnostics, remain bounded, and synchronize when either
   participant restarts the check. The host's RTT samples are synchronized to
   the guest report so both views describe the same measurement.
@@ -55,7 +55,7 @@
   attempt and returns to create/join controls with an actionable explanation.
 - **Verification:** `npm run check` passed with formatting, strict TypeScript,
   ESLint, 35 Vitest tests, client build, and Worker build. `npm run
-  test:browser` passed 4 Chromium tests in 2.0 minutes using actual local
+test:browser` passed 4 Chromium tests in 2.0 minutes using actual local
   Worker signaling and RTC data channels: automatic checks and intent
   withdrawal, responsive keyboard drawer behavior, 16/16 terminal matrix
   rows, bidirectional chat, common attempt IDs, complete clipboard report,
@@ -286,7 +286,7 @@ The implementation keeps the SPEC bounds: 10-second HTTP requests, 15-second
 preflight probes, 30-second per-running connectivity profile deadlines,
 15-minute inactive rooms, at most three STUN and six TURN URLs per device, and
 bounded concurrent probes. Sequential performance traffic uses 16 KiB chunks,
-a configurable 1–10 second sample target (3 seconds by default), and a
+a configurable 1–10 second test length (3 seconds by default), and a
 configurable 8–256 MiB ceiling per direction (100 MiB by default, twice that
 total). The byte ceiling is authoritative and cap-limited samples are labeled.
 Diagnostic events are capped at 5,000 events or 2 MiB per run;

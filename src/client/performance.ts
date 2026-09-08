@@ -283,7 +283,7 @@ export class CoordinatedPerformance {
   private async sendDirection(direction: DirectionResult['direction']) {
     const startedAt = this.now();
     let sent = 0;
-    let reason = 'sample target';
+    let reason = 'measurement time reached';
     const chunk = new Uint8Array(this.limits.chunkBytes);
     while (
       !this.cancelled &&
@@ -308,7 +308,7 @@ export class CoordinatedPerformance {
     else if (sent + chunk.byteLength > this.limits.maxDirectionBytes)
       reason =
         elapsedMs < this.limits.minSampleDurationMs
-          ? `${formatByteLimit(this.limits.maxDirectionBytes)} safety cap before ${this.limits.minSampleDurationMs / 1_000} s target`
+          ? `${formatByteLimit(this.limits.maxDirectionBytes)} traffic limit reached before ${this.limits.minSampleDurationMs / 1_000} s goal`
           : 'byte safety cap';
     else if (this.totalSent + chunk.byteLength > this.limits.maxTotalBytes)
       reason = 'total byte safety cap';

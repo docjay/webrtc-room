@@ -178,7 +178,13 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   await expect(
     host.locator('.diagnostics-drawer').getByText(/Complete: RTT min\/median\/p95\/max/),
   ).toBeVisible({ timeout: 20_000 });
-  await host.getByLabel('Sample duration target (seconds)').fill('2');
+  await expect(
+    host
+      .locator('.diagnostics-drawer')
+      .getByText(/MiB in \d+\.\d{2} s/)
+      .first(),
+  ).toBeVisible();
+  await host.getByLabel('Test length (seconds)').fill('2');
   await host.getByLabel('Maximum per direction (MiB)').fill('8');
   await host.getByRole('button', { name: 'Restart speed check' }).click();
   await expect(host.getByRole('button', { name: 'Restart speed check' })).toBeHidden();
@@ -214,7 +220,7 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
     .locator('.diagnostics-drawer')
     .getByText('Connection speed check', { exact: true })
     .click();
-  await expect(guest.getByLabel('Sample duration target (seconds)')).toHaveValue('2');
+  await expect(guest.getByLabel('Test length (seconds)')).toHaveValue('2');
   await expect(guest.getByLabel('Maximum per direction (MiB)')).toHaveValue('8');
   await expect(
     guest.locator('.diagnostics-drawer').getByText(/(?:[1-9]|1\d|20)\/20 answered/),
