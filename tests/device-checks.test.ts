@@ -100,6 +100,7 @@ describe('device checks', () => {
     const pending = new Promise<void>((resolve) => {
       release = resolve;
     });
+
     const controller = new DeviceCheckController({
       checkSignaling: () => pending,
       environment: {
@@ -121,6 +122,35 @@ describe('device checks', () => {
     expect(snapshot.results.find((result) => result.id.startsWith('stun-'))?.outcome).toBe(
       'failure',
     );
+  });
+
+  it('reports WebRTC support separately from an insecure page origin', async () => {
+    const controller = new DeviceCheckController({
+      checkSignaling: () => Promise.resolve(),
+      environment: {
+        secureContext: false,
+        hasPeerConnection: true,
+        hasDataChannel: true,
+        hasRuntime: true,
+        rtcFactory: () => {
+          throw new Error('RTC checks must not run before HTTPS is available');
+        },
+      },
+    });
+
+    const snapshot = await controller.start({
+      configuration: config,
+      configurationVersion: 'insecure-origin',
+    });
+    const browser = snapshot.results.find((result) => result.id === 'browser');
+    const secureContext = snapshot.results.find((result) => result.id === 'secure-context');
+
+    expect(browser?.outcome).toBe('pass');
+    expect(browser?.detail).toMatch(/required WebRTC APIs/i);
+    expect(secureContext?.outcome).toBe('failure');
+    expect(secureContext?.detail).toMatch(/require HTTPS/i);
+    expect(snapshot.ready).toBe(false);
+    expect(snapshot.blockingPrerequisites[0]).toMatch(/browser supports WebRTC.*HTTPS/i);
   });
 
   it('converts synchronous construction errors and timeouts into terminal outcomes', async () => {

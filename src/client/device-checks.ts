@@ -172,12 +172,18 @@ export class DeviceCheckController {
     signal: AbortSignal,
   ): Array<() => Promise<DeviceCheckResult>> {
     const browser = this.browserResult();
+    const secureContext = this.secureContextResult();
+    const rtcReady = browser.outcome === 'pass' && secureContext.outcome === 'pass';
     const tasks: Array<() => Promise<DeviceCheckResult>> = [
       () => Promise.resolve(browser),
-      ...this.transportCapabilities(browser).map((result) => () => Promise.resolve(result)),
+      () => Promise.resolve(secureContext),
+      ...this.transportCapabilities(browser, secureContext).map(
+        (result) => () => Promise.resolve(result),
+      ),
     ];
     tasks.push(() => this.signaling(signal));
-    if (browser.outcome === 'pass') tasks.push(() => this.localGathering(signal));
+    if (!rtcReady) return tasks;
+    tasks.push(() => this.localGathering(signal));
     const configured = sanitizeIceConfig(input.configuration);
     const hasStun = configured.some((server) => server.kind === 'stun');
     const hasTurn = configured.some((server) => server.kind === 'turn');
@@ -202,7 +208,6 @@ export class DeviceCheckController {
   private browserResult(): DeviceCheckResult {
     const start = this.environment.now();
     const outcome =
-      this.environment.secureContext &&
       this.environment.hasPeerConnection &&
       this.environment.hasDataChannel &&
       this.environment.hasRuntime
@@ -213,13 +218,34 @@ export class DeviceCheckController {
       label: 'Browser WebRTC support',
       outcome,
       elapsedMs: Math.round(this.environment.now() - start),
+      ...(outcome === 'pass'
+        ? { detail: 'This browser exposes the required WebRTC APIs.' }
+        : { detail: 'This browser does not expose all required WebRTC APIs.' }),
     };
   }
 
-  private transportCapabilities(browser: DeviceCheckResult): DeviceCheckResult[] {
+  private secureContextResult(): DeviceCheckResult {
+    return {
+      id: 'secure-context',
+      label: 'Secure connection',
+      outcome: this.environment.secureContext ? 'pass' : 'failure',
+      elapsedMs: 0,
+      detail: this.environment.secureContext
+        ? 'This page is running in a browser-trusted secure context.'
+        : 'WebRTC diagnostics require HTTPS. A private IP opened over plain HTTP is not a secure context.',
+    };
+  }
+
+  private transportCapabilities(
+    browser: DeviceCheckResult,
+    secureContext: DeviceCheckResult,
+  ): DeviceCheckResult[] {
     const started = this.environment.now();
-    let relayIsolation: DeviceCheckOutcome = 'unsupported';
-    if (browser.outcome === 'pass') {
+    let relayIsolation: DeviceCheckOutcome =
+      browser.outcome === 'pass' && secureContext.outcome !== 'pass'
+        ? 'inconclusive'
+        : 'unsupported';
+    if (browser.outcome === 'pass' && secureContext.outcome === 'pass') {
       try {
         const connection = this.environment.rtcFactory({
           iceServers: [],
@@ -241,7 +267,9 @@ export class DeviceCheckController {
         detail:
           relayIsolation === 'pass'
             ? 'This browser can require relay candidates; configured TURN UDP, TCP, and TLS URLs are tested separately.'
-            : 'This browser did not accept the standard relay-only transport policy.',
+            : relayIsolation === 'inconclusive'
+              ? 'Open this page over HTTPS before testing relay-only behavior.'
+              : 'This browser did not accept the standard relay-only transport policy.',
       },
       {
         id: 'direct-ice-tcp-isolation',
@@ -392,10 +420,15 @@ export class DeviceCheckController {
 
   private blocking(results: DeviceCheckResult[]): string[] {
     const browser = results.find((result) => result.id === 'browser');
+    const secureContext = results.find((result) => result.id === 'secure-context');
     const signaling = results.find((result) => result.id === 'signaling');
     const blocking: string[] = [];
     if (browser?.outcome !== 'pass')
       blocking.push('This browser cannot run the required WebRTC checks.');
+    if (secureContext?.outcome !== 'pass')
+      blocking.push(
+        'This browser supports WebRTC, but this page must be opened over HTTPS to run the checks.',
+      );
     if (signaling?.outcome !== 'pass')
       blocking.push('Signaling reachability must succeed before joining a room.');
     return blocking;

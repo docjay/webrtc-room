@@ -54,6 +54,10 @@
   `crypto.randomUUID()`. Client IDs now use `crypto.getRandomValues()` as the
   cryptographically strong browser-compatible fallback. The LAN URL renders
   without client errors; its insecure-context limitation remains explicit.
+- Corrected mobile capability reporting so browser WebRTC API support and the
+  page's secure-context status are separate rows. Android Chrome now reports
+  WebRTC support accurately while plain LAN HTTP reports the actual blocker:
+  the checks require a trusted HTTPS origin.
 - Preserved the full paired connectivity matrix and Workers/D1/Sites/auth
   boundaries. Either participant can request one idempotent shared retry.
   Automatic bandwidth traffic begins only after the matrix and is skipped when

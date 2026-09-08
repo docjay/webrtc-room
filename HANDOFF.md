@@ -150,6 +150,11 @@ The client does render on that insecure origin: ID generation falls back from
 secure-context-only `crypto.randomUUID()` to cryptographically strong
 `crypto.getRandomValues()`. This removes the previous Android Chrome blank
 screen without pretending plain HTTP can run the full WebRTC checks.sh
+
+Device checks report browser WebRTC API support separately from secure-context
+availability. Android Chrome over LAN HTTP therefore shows WebRTC as supported
+and HTTPS as the blocking prerequisite rather than falsely labeling the browser
+unsupported.sh
 npm install
 npm run dev
 npm run build
