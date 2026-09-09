@@ -7,7 +7,6 @@ import {
   profileUsesTurn,
   sanitizeIceConfig,
   selectEligibleProfile,
-  TURN_ACCESS_CODE_MIN_LENGTH,
   type DiagnosticEvent,
   type IceConfig,
   type Profile,
@@ -57,7 +56,7 @@ function alignTemporaryTurnCredentials(reference: IceConfig, fresh: IceConfig): 
       const urls = typeof server.urls === 'string' ? [server.urls] : server.urls;
       const replacement = freshByUrl.get(urls[0]!);
       if (!replacement?.username || !replacement.credential)
-        throw new Error('Xirsys returned a different relay configuration');
+        throw new Error('The TURN service returned a different relay configuration');
       return { urls, username: replacement.username, credential: replacement.credential };
     }),
   });
@@ -223,6 +222,7 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [fieldError, setFieldError] = useState('');
+  const [relayError, setRelayError] = useState('');
   const [invitationFeedback, setInvitationFeedback] = useState('');
   const [automaticBandwidthEnabled, setAutomaticBandwidthEnabled] = useState(true);
   const [performanceSampleDurationSeconds, setPerformanceSampleDurationSeconds] = useState(3);
@@ -245,7 +245,7 @@ function App() {
         : { iceServers: [] };
       const customServers = sanitizeIceConfig(custom);
       const managedSummary = managedTurnConfig.iceServers.length
-        ? ` + ${managedTurnConfig.iceServers.length} managed Xirsys TURN endpoints`
+        ? ` + ${managedTurnConfig.iceServers.length} managed TURN endpoints`
         : '';
       if (!customServers.length) return `${defaultStunSummary}${managedSummary}`;
       const customSummary = customServers
@@ -303,6 +303,7 @@ function App() {
   const suiteGeneration = useRef(0);
   const retryPreviousAttempt = useRef<string | null>(null);
   const submittedCapabilities = useRef('');
+  const relayRequestGeneration = useRef(0);
   const checksVersion = String(configurationVersion);
 
   const scheduleUpload = useCallback(() => {
@@ -463,13 +464,7 @@ function App() {
       return;
     startChecks(Boolean(credentials));
   }, [credentials, startChecks]);
-  const applySettings = useCallback(async () => {
-    if (turnAccessCode.trim() && turnAccessCode.trim().length < TURN_ACCESS_CODE_MIN_LENGTH) {
-      setFieldError(
-        `The Xirsys relay access code must contain at least ${TURN_ACCESS_CODE_MIN_LENGTH} characters.`,
-      );
-      return;
-    }
+  const applySettings = useCallback(() => {
     let parsed: IceConfig;
     try {
       parsed = draftIceText.trim()
@@ -490,14 +485,11 @@ function App() {
     )
       return;
     setApplyingSettings(true);
-    let nextManagedTurn: IceConfig = turnAccessCode.trim() ? managedTurnConfig : { iceServers: [] };
     try {
-      if (credentials && turnAccessCode.trim())
-        nextManagedTurn = await api.turnCredentials(credentials, turnAccessCode);
-      configuredIce(nextManagedTurn, draftIceText);
-    } catch (turnError) {
+      configuredIce(managedTurnConfig, draftIceText);
+    } catch (applyError) {
       setFieldError(
-        `Could not apply network settings: ${turnError instanceof Error ? turnError.message : 'unknown error'}`,
+        `Could not apply network settings: ${applyError instanceof Error ? applyError.message : 'unknown error'}`,
       );
       setApplyingSettings(false);
       return;
@@ -505,26 +497,74 @@ function App() {
     if (credentials) tearDownAttempt(true);
     setFieldError('');
     setMain('Checking this device');
-    setManagedTurnConfig(nextManagedTurn);
-    setAppliedTurnAccessCode(nextManagedTurn.iceServers.length ? turnAccessCode.trim() : '');
     setAppliedIceText(draftIceText);
     setConfigurationVersion((value) => value + 1);
     setError('');
     setApplyingSettings(false);
-  }, [credentials, draftIceText, managedTurnConfig, tearDownAttempt, turnAccessCode]);
+  }, [credentials, draftIceText, managedTurnConfig, tearDownAttempt]);
+
+  const applyTurnAccessCode = useCallback(async () => {
+    if (!credentials) return;
+    const normalizedCode = turnAccessCode.trim();
+    if (normalizedCode === appliedTurnAccessCode) return;
+    if (
+      !window.confirm(
+        'Applying the relay code may interrupt the active connection and start a new diagnostic attempt. Continue?',
+      )
+    )
+      return;
+    const requestGeneration = ++relayRequestGeneration.current;
+    const participantId = credentials.participantId;
+    setApplyingSettings(true);
+    try {
+      const turnConfig = normalizedCode
+        ? await api.turnCredentials(credentials, normalizedCode)
+        : { iceServers: [] };
+      if (
+        requestGeneration !== relayRequestGeneration.current ||
+        credentialsRef.current?.participantId !== participantId
+      )
+        return;
+      configuredIce(turnConfig, appliedIceText);
+      tearDownAttempt(true);
+      setManagedTurnConfig(turnConfig);
+      setAppliedTurnAccessCode(turnConfig.iceServers.length ? normalizedCode : '');
+      setConfigurationVersion((version) => version + 1);
+      setRelayError('');
+      setError('');
+      setMain('Checking this device');
+      record(
+        turnConfig.iceServers.length
+          ? 'Managed TURN credentials activated'
+          : 'Managed TURN credentials removed',
+        'success',
+      );
+    } catch (turnError) {
+      if (requestGeneration !== relayRequestGeneration.current) return;
+      setRelayError(
+        `Could not apply the TURN relay code: ${turnError instanceof Error ? turnError.message : 'unknown error'}`,
+      );
+    } finally {
+      if (requestGeneration === relayRequestGeneration.current) setApplyingSettings(false);
+    }
+  }, [appliedIceText, appliedTurnAccessCode, credentials, record, tearDownAttempt, turnAccessCode]);
 
   const activateManagedTurn = async (value: Credentials) => {
     if (!turnAccessCode.trim()) return;
+    const requestGeneration = ++relayRequestGeneration.current;
     try {
       const turnConfig = await api.turnCredentials(value, turnAccessCode);
+      if (requestGeneration !== relayRequestGeneration.current) return;
       configuredIce(turnConfig, appliedIceText);
       setManagedTurnConfig(turnConfig);
       setAppliedTurnAccessCode(turnAccessCode.trim());
       setConfigurationVersion((version) => version + 1);
-      record('Xirsys TURN credentials activated', 'success');
+      setRelayError('');
+      record('Managed TURN credentials activated', 'success');
     } catch (turnError) {
-      setFieldError(
-        `Room access succeeded, but Xirsys TURN was not activated: ${turnError instanceof Error ? turnError.message : 'unknown error'}`,
+      if (requestGeneration !== relayRequestGeneration.current) return;
+      setRelayError(
+        `Room access succeeded, but the TURN relay was not activated: ${turnError instanceof Error ? turnError.message : 'unknown error'}`,
       );
     }
   };
@@ -646,6 +686,9 @@ function App() {
         setManagedTurnConfig({ iceServers: [] });
         setTurnAccessCode('');
         setAppliedTurnAccessCode('');
+        relayRequestGeneration.current++;
+        setApplyingSettings(false);
+        setRelayError('');
         setMain('Disconnected');
         setError(
           'This room expired or this device no longer has access. Create a new room or enter a current invitation code.',
@@ -838,7 +881,7 @@ function App() {
           } catch {
             result = {
               outcome: 'failure',
-              detail: 'temporary Xirsys credentials could not be refreshed',
+              detail: 'temporary TURN credentials could not be refreshed',
               elapsedMs: window.performance.now() - startedAt,
               close: () => undefined,
             };
@@ -975,12 +1018,15 @@ function App() {
     void runPerformance(channel, performanceHost.current);
   }
   async function leave() {
+    relayRequestGeneration.current++;
     tearDownAttempt(false);
     await (credentials ? api.leave(credentials) : Promise.resolve()).catch(() => undefined);
     setCredentials(null);
     setManagedTurnConfig({ iceServers: [] });
     setTurnAccessCode('');
     setAppliedTurnAccessCode('');
+    setApplyingSettings(false);
+    setRelayError('');
     setMessages([]);
     setMain('Disconnected');
     setError('');
@@ -1180,6 +1226,32 @@ function App() {
     messageDraft: draft,
     canSend: mainChannel.current?.readyState === 'open',
     roomCodeDraft: roomCode,
+    relayAccess: {
+      code: turnAccessCode,
+      status: !credentials
+        ? turnAccessCode.trim()
+          ? 'This code will be applied after room authorization.'
+          : 'Optional: enter the shared TURN code before creating or joining a room.'
+        : managedTurnConfig.iceServers.length
+          ? turnAccessCode.trim() === appliedTurnAccessCode
+            ? 'TURN relay is enabled for this tab.'
+            : turnAccessCode.trim()
+              ? 'The edited code is not active. Apply it to update TURN relay checks.'
+              : 'Apply the empty field to disable TURN relay checks.'
+          : turnAccessCode.trim()
+            ? 'Apply this code to enable TURN relay checks.'
+            : 'Enter the shared code to enable TURN relay checks.',
+      applying: applyingSettings,
+      canApply:
+        Boolean(credentials) &&
+        turnAccessCode.trim() !== appliedTurnAccessCode &&
+        (Boolean(turnAccessCode.trim()) || managedTurnConfig.iceServers.length > 0),
+      actionLabel:
+        managedTurnConfig.iceServers.length > 0 && !turnAccessCode.trim()
+          ? 'Disable relay'
+          : 'Apply relay code',
+      ...(relayError ? { error: relayError } : {}),
+    },
     actions: credentials
       ? [
           { id: 'leave', label: 'Leave room', tone: 'danger', onClick: () => void leave() },
@@ -1272,12 +1344,6 @@ function App() {
     },
     advancedSettings: {
       draft: draftIceText,
-      turnAccessCode,
-      turnStatus: managedTurnConfig.iceServers.length
-        ? 'Xirsys TURN is active for this tab.'
-        : credentials
-          ? 'Enter the shared code and apply settings to activate Xirsys TURN.'
-          : 'Enter the shared code before creating or joining a room.',
       error: fieldError,
       preview: draftPreview,
       applying: applyingSettings,
@@ -1366,6 +1432,11 @@ function App() {
         model={roomModel}
         callbacks={{
           onRoomCodeChange: setRoomCode,
+          onRelayAccessCodeChange: (value) => {
+            setTurnAccessCode(value);
+            setRelayError('');
+          },
+          onApplyRelayAccessCode: () => void applyTurnAccessCode(),
           onCopyInvitation: () => void copyInvitation(),
           onMessageDraftChange: setDraft,
           onSendMessage: send,
@@ -1390,10 +1461,6 @@ function App() {
           onRestartPerformance: restartPerformance,
           onAdvancedDraftChange: (value) => {
             setDraftIceText(value);
-            setFieldError('');
-          },
-          onTurnAccessCodeChange: (value) => {
-            setTurnAccessCode(value);
             setFieldError('');
           },
           onApplyAdvancedSettings: () => void applySettings(),

@@ -10,7 +10,7 @@ Build a two-device WebRTC data-channel demo with diagnostics before, during, and
 
 - Default public STUN: `stun:stun.cloudflare.com:3478`. Cloudflare documents this STUN service as free and unlimited. Label each device check and matrix hop with its credential-free server address so failures map to the exact configured endpoint. Permit editing/disabling endpoints through advanced configuration. Browsers may contact multiple configured custom URLs concurrently; do not promise ordered failover inside ICE.
 - STUN discovers mapped addresses; it is not a relay or a guarantee of connectivity.
-- TURN is unconfigured unless the hosted runtime supplies Xirsys integration secrets. When configured, each participant may enter the shared diagnostic access code locally; only an already-authorized room participant can exchange it through the Worker for temporary Xirsys credentials. The long-term Xirsys ident, secret, channel, and diagnostic access code remain server-side. Each device may alternatively paste a JSON string with an `iceServers` array using standard `urls`, `username`, and `credential` fields. Support TURN UDP, optional plain TCP, and TLS over TCP. Example:
+- TURN is unconfigured unless the hosted runtime supplies Xirsys integration secrets. When configured, each participant may enter the provider-neutral shared TURN access code on the primary room surface; only an already-authorized room participant can exchange it through the Worker for temporary Xirsys credentials. The long-term Xirsys ident, secret, channel, and diagnostic access code remain server-side. Each device may alternatively paste a JSON string with an `iceServers` array using standard `urls`, `username`, and `credential` fields. Support TURN UDP, optional plain TCP, and TLS over TCP. Example:
 
 ```json
 {
@@ -81,7 +81,7 @@ Keep summary/milestone/failure records for EVERY scheduled test in a reserved bo
 
 ## Product surfaces
 
-1. A guided primary room surface: explicit create/join intent, automatic-check progress, code/link with copy invitation, two participant slots, plain-language connection status, connected text messaging, and context-appropriate leave/retry actions. Invitation visits focus on joining that room. Keep technical IDs and transport detail out of the primary flow.
+1. A guided primary room surface: explicit create/join intent, automatic-check progress, code/link with copy invitation, an optional provider-neutral TURN relay access-code field, two participant slots, plain-language connection status, connected text messaging, and context-appropriate leave/retry actions. Invitation visits focus on joining that room. Keep technical IDs and transport detail out of the primary flow.
 2. A diagnostics drawer, closed by default: non-modal desktop side panel and accessible modal full-screen mobile sheet. It contains automatic device/preflight summaries and per-check outcome/duration, Recheck device, advanced ICE configuration with explicit Apply, and visible/copyable attempt or local run identity.
 3. Within diagnostics: expandable live timeline, candidate table, full connectivity matrix, selected path, and stage timers. A concise main-surface indicator distinguishes usable connection status from ongoing diagnostic progress.
 4. Performance probe controls/results in diagnostics; show the automatic bandwidth preference and planned traffic budget before connecting, and honor either participant's opt-out. Keep connected text messaging primary while additional checks continue.

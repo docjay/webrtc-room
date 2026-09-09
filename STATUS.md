@@ -2,6 +2,15 @@
 
 ## Current milestone - Codex Sites deployment candidate, 2026-09-08
 
+- Moved the optional TURN relay access code from advanced diagnostics onto the
+  primary room surface. Participant-facing copy is provider-neutral and omits
+  password-policy details. In-room relay activation/removal now has its own
+  Apply action, draft-versus-active status, accessible live feedback, and
+  stale-response invalidation so leaving cannot restore credentials.
+- Delegation: at the user's request, GPT-6 Astra medium reviewed the relay-code
+  UI. It identified stale credential responses after Leave, confusing
+  empty/no-op application states, and inaccessible success feedback; all three
+  findings were corrected and covered before publication.
 - Removed the room-lifetime 500 ms coordination loop exposed by hosted
   analytics. Each participant now publishes unchanged capabilities once per
   configuration generation; waiting status checks back off from 500 ms to five

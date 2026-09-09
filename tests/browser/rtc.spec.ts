@@ -30,6 +30,12 @@ test('automatic checks keep explicit intent pending and the mobile drawer access
   await page.goto('/?room=ABC234');
 
   await expect(page.getByRole('heading', { name: 'Join room ABC234' })).toBeVisible();
+  const relayCode = page.getByLabel('TURN relay access code');
+  await expect(relayCode).toBeVisible();
+  await expect(relayCode).toHaveAttribute('type', 'password');
+  await expect(relayCode).toHaveAttribute('autocomplete', 'off');
+  await expect(relayCode).not.toHaveAttribute('minlength');
+  await expect(page.getByText(/Xirsys/i)).toHaveCount(0);
   await expect(page.locator('.diagnostics-drawer')).toHaveCount(0);
   await expect(page.getByText(/Checking device: \d+ of \d+ · up to \d+s remaining/)).toBeVisible();
   await capture(page, 'mobile-invitation-checking');
@@ -57,9 +63,6 @@ test('automatic checks keep explicit intent pending and the mobile drawer access
     page.getByText('STUN mapped-address discovery — stun.cloudflare.com:3478'),
   ).toBeVisible();
   await page.getByText('Advanced network settings', { exact: true }).click();
-  await expect(page.getByLabel('Xirsys relay access code')).toHaveAttribute('type', 'password');
-  await expect(page.getByLabel('Xirsys relay access code')).toHaveAttribute('autocomplete', 'off');
-  await expect(page.getByLabel('Xirsys relay access code')).toHaveAttribute('minlength', '6');
   const serverJson = page.getByLabel('Optional STUN/TURN server JSON');
   await expect(serverJson).toHaveAttribute('placeholder', /"iceServers"/);
   await expect(page.getByText(/STUN discovers public network addresses/)).toBeVisible();
@@ -111,6 +114,9 @@ test('managed TURN exchanges an in-memory access code only after room authorizat
   const accessCode = 'invite-only-relay-code-1234';
   let credentialRequest:
     { authorization: string | undefined; body: { accessCode?: unknown } } | undefined;
+  let delayNextCredentialResponse = false;
+  let delayedRequestStarted = false;
+  let releaseCredentialResponse: (() => void) | undefined;
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.route('**/api/rooms/*/turn-credentials', async (route) => {
     const request = route.request();
@@ -118,6 +124,12 @@ test('managed TURN exchanges an in-memory access code only after room authorizat
       authorization: request.headers().authorization,
       body: request.postDataJSON() as { accessCode?: unknown },
     };
+    if (delayNextCredentialResponse) {
+      delayedRequestStarted = true;
+      await new Promise<void>((resolve) => {
+        releaseCredentialResponse = resolve;
+      });
+    }
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
@@ -133,23 +145,32 @@ test('managed TURN exchanges an in-memory access code only after room authorizat
   });
 
   await page.goto('/');
-  await openDiagnostics(page);
-  await page.getByText('Advanced network settings', { exact: true }).click();
-  await page.getByLabel('Xirsys relay access code').fill(accessCode);
-  await page.getByRole('button', { name: 'Close diagnostics' }).click();
+  await page.getByLabel('TURN relay access code').fill(accessCode);
   await page.getByRole('button', { name: 'Create a room' }).click();
 
   await expect.poll(() => credentialRequest).toBeTruthy();
   expect(credentialRequest?.authorization).toMatch(/^Bearer pt_/);
   expect(credentialRequest?.body).toEqual({ accessCode });
+  await expect(page.getByText('TURN relay is enabled for this tab.')).toBeVisible();
   await openDiagnostics(page);
-  await page.getByText('Advanced network settings', { exact: true }).click();
-  await expect(page.getByText(/Xirsys TURN is active for this tab/)).toBeVisible();
   await page.getByRole('button', { name: 'Copy report' }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).not.toContain(accessCode);
   expect(
     await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage })),
   ).not.toContain(accessCode);
+  await page.getByRole('button', { name: 'Close diagnostics' }).click();
+
+  delayNextCredentialResponse = true;
+  await page.getByLabel('TURN relay access code').fill('replacement-relay-code');
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.getByRole('button', { name: 'Apply relay code' }).click();
+  await expect.poll(() => delayedRequestStarted).toBe(true);
+  await page.getByRole('button', { name: 'Leave room' }).click();
+  releaseCredentialResponse?.();
+
+  await expect(page.getByRole('heading', { name: /Join room/ })).toBeVisible();
+  await expect(page.getByLabel('TURN relay access code')).toHaveValue('');
+  await expect(page.getByText('TURN relay is enabled for this tab.')).toHaveCount(0);
 });
 
 test('two devices auto-check, connect, exchange chat, finish the matrix, and render one report', async ({

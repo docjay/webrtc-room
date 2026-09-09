@@ -42,6 +42,11 @@
   Xirsys credentials through the Worker. Long-term Xirsys values never reach
   the browser, D1, reports, logs, URLs, or Git. The client refreshes temporary
   credentials immediately before each Xirsys-backed relay probe.
+- **Relay access UX pending deployment:** the participant-facing field is now
+  provider-neutral and visible on the primary room surface before and during a
+  room. It omits minimum-length messaging, exposes a dedicated Apply/Disable
+  action after authorization, announces status accessibly, and invalidates
+  delayed credential responses when room access ends.
 - **Coordination traffic fix pending deployment:** unchanged capabilities are
   published once per participant/configuration generation instead of every
   500 ms. Waiting room-status checks use bounded exponential backoff, settled

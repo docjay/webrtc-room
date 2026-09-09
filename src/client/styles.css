@@ -193,6 +193,29 @@ textarea {
   text-transform: uppercase;
 }
 
+.relay-access {
+  background: #f5f8ff;
+  border: 1px solid #d7e1f5;
+  border-radius: 0.85rem;
+  margin: 1.25rem 0;
+  padding: 0.9rem 1rem 1rem;
+}
+
+.relay-access .field {
+  margin: 0;
+}
+
+.relay-access > small {
+  color: #69758a;
+  display: block;
+  font-size: 0.82rem;
+  margin-top: 0.45rem;
+}
+
+.relay-access .button {
+  margin-top: 0.85rem;
+}
+
 .room-actions,
 .row {
   align-items: center;

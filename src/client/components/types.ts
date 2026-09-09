@@ -46,11 +46,21 @@ export interface RoomSurfaceModel {
   messageDraft?: string;
   canSend?: boolean;
   roomCodeDraft?: string;
+  relayAccess: {
+    code: string;
+    status: string;
+    applying: boolean;
+    canApply: boolean;
+    actionLabel: string;
+    error?: string;
+  };
   actions: readonly RoomAction[];
 }
 
 export interface RoomSurfaceCallbacks {
   onRoomCodeChange: (value: string) => void;
+  onRelayAccessCodeChange: (value: string) => void;
+  onApplyRelayAccessCode: () => void;
   onCopyInvitation: () => void;
   onMessageDraftChange: (value: string) => void;
   onSendMessage: () => void;
@@ -119,8 +129,6 @@ export interface DiagnosticsViewModel {
   report: ReportViewModel;
   advancedSettings: {
     draft: string;
-    turnAccessCode: string;
-    turnStatus: string;
     error?: string;
     preview: string;
     applying?: boolean;
@@ -138,7 +146,6 @@ export interface DiagnosticsCallbacks {
   onPerformanceMaxDirectionMiBChange: (mebibytes: number) => void;
   onRestartPerformance?: () => void;
   onAdvancedDraftChange: (value: string) => void;
-  onTurnAccessCodeChange: (value: string) => void;
   onApplyAdvancedSettings: () => void;
   onCopyReport: () => void;
   onDownloadReport: () => void;
