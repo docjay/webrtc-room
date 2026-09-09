@@ -2,6 +2,16 @@
 
 ## Current handoff - Codex Sites deployment candidate, 2026-09-08
 
+- **Xirsys response-shape fix pending deployment:** live provider
+  authentication succeeded and returned a successful `v.iceServers` as one
+  RTCIceServer object containing one STUN and six TURN URLs, rather than the
+  legacy array assumed by the Worker. The parser now validates and accepts
+  both documented shapes, filters STUN, emits six isolated bounded TURN
+  entries, and fail-closes on malformed objects or `s: "error"` envelopes
+  without exposing provider payloads. This evidence includes no credential or
+  account identifier. The compiled corrected adapter also succeeded against
+  the real provider, producing six isolated entries (two UDP, two TCP, two TLS).
+  Real two-device TURN allocation/connectivity remains pending.
 - **Branch:** `main`
 - **Implementation source commit:** `0342a1624177dadb04486ed0fb73dd4cdd97f633`
 - **Starting/planning commit:** `1c62490`

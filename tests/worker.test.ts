@@ -470,6 +470,83 @@ describe('worker room integration', () => {
     }
   });
 
+  it('normalizes the standard single-object Xirsys response and filters STUN URLs', async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          s: 'ok',
+          v: {
+            iceServers: {
+              urls: [
+                'stun:stun.example.test:3478',
+                'turn:relay.example.test:3478?transport=udp',
+                'turn:relay.example.test:3478?transport=tcp',
+                'turn:relay.example.test:80?transport=udp',
+                'turn:relay.example.test:80?transport=tcp',
+                'turns:relay.example.test:443?transport=tcp',
+                'turns:relay.example.test:5349?transport=tcp',
+              ],
+              username: 'temporary-user',
+              credential: 'temporary-credential',
+            },
+          },
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const { request } = await fixture({
+        XIRSYS_IDENT: 'test-ident',
+        XIRSYS_SECRET: 'test-secret',
+        XIRSYS_CHANNEL: 'test-channel',
+        DIAGNOSTIC_ACCESS_CODE: 'valid-access-code',
+      });
+      const { host, auth } = await credentials(request);
+      const response = await request(`/api/rooms/${host.roomCode}/turn-credentials`, {
+        method: 'POST',
+        headers: auth(host),
+        body: JSON.stringify({ accessCode: 'valid-access-code' }),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        iceServers: [
+          {
+            urls: ['turn:relay.example.test:3478?transport=udp'],
+            username: 'temporary-user',
+            credential: 'temporary-credential',
+          },
+          {
+            urls: ['turn:relay.example.test:3478?transport=tcp'],
+            username: 'temporary-user',
+            credential: 'temporary-credential',
+          },
+          {
+            urls: ['turn:relay.example.test:80?transport=udp'],
+            username: 'temporary-user',
+            credential: 'temporary-credential',
+          },
+          {
+            urls: ['turn:relay.example.test:80?transport=tcp'],
+            username: 'temporary-user',
+            credential: 'temporary-credential',
+          },
+          {
+            urls: ['turns:relay.example.test:443?transport=tcp'],
+            username: 'temporary-user',
+            credential: 'temporary-credential',
+          },
+          {
+            urls: ['turns:relay.example.test:5349?transport=tcp'],
+            username: 'temporary-user',
+            credential: 'temporary-credential',
+          },
+        ],
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('does not expose malformed, failed, or timed-out Xirsys upstream responses', async () => {
     const configuration = {
       XIRSYS_IDENT: 'test-ident',
@@ -484,6 +561,39 @@ describe('worker room integration', () => {
     }> = [
       {
         upstream: () => Promise.resolve(Response.json({ v: { iceServers: [{}] } })),
+        expectedStatus: 502,
+        expectedError: 'TURN credential service unavailable',
+      },
+      {
+        upstream: () =>
+          Promise.resolve(
+            Response.json({
+              v: {
+                iceServers: {
+                  urls: 'turn:relay.example.test:3478?transport=udp',
+                  username: 'temporary-user',
+                },
+              },
+            }),
+          ),
+        expectedStatus: 502,
+        expectedError: 'TURN credential service unavailable',
+      },
+      {
+        upstream: () =>
+          Promise.resolve(
+            Response.json({
+              s: 'error',
+              v: {
+                iceServers: {
+                  urls: 'turn:relay.example.test:3478?transport=udp',
+                  username: 'temporary-user',
+                  credential: 'temporary-credential',
+                },
+              },
+              detail: 'provider-only error payload',
+            }),
+          ),
         expectedStatus: 502,
         expectedError: 'TURN credential service unavailable',
       },

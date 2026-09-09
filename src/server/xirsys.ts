@@ -16,7 +16,12 @@ const upstreamServerSchema = z
 
 const upstreamResponseSchema = z
   .object({
-    v: z.object({ iceServers: z.array(z.unknown()).min(1).max(9) }).passthrough(),
+    s: z.literal('ok').optional(),
+    v: z
+      .object({
+        iceServers: z.union([upstreamServerSchema, z.array(upstreamServerSchema).min(1).max(9)]),
+      })
+      .passthrough(),
   })
   .passthrough();
 
@@ -89,18 +94,17 @@ export async function requestXirsysTurnCredentials(config: {
   const upstream = upstreamResponseSchema.safeParse(payload);
   if (!upstream.success) throw new XirsysError(502, 'TURN credential service unavailable');
 
-  const entries = upstream.data.v.iceServers.map((entry) => upstreamServerSchema.safeParse(entry));
-  if (entries.some((entry) => !entry.success))
-    throw new XirsysError(502, 'TURN credential service unavailable');
+  const entries = Array.isArray(upstream.data.v.iceServers)
+    ? upstream.data.v.iceServers
+    : [upstream.data.v.iceServers];
 
   const iceServers = entries.flatMap((entry) => {
-    const server = entry.data!;
-    const urls = server.urls ?? server.url!;
+    const urls = entry.urls ?? entry.url!;
     const normalizedUrls = (typeof urls === 'string' ? [urls] : urls).filter(
       (url) => url.startsWith('turn:') || url.startsWith('turns:'),
     );
     if (!normalizedUrls.length) return [];
-    const { username, credential } = server;
+    const { username, credential } = entry;
     if (!username || !credential) throw new XirsysError(502, 'TURN credential service unavailable');
     return normalizedUrls.map((url) => ({
       urls: [url],

@@ -2,6 +2,21 @@
 
 ## Current milestone - Codex Sites deployment candidate, 2026-09-08
 
+- Fixed managed Xirsys TURN credential parsing for the documented standard
+  successful envelope: `v.iceServers` may be one RTCIceServer object rather
+  than a legacy array. The Worker now accepts and validates both shapes,
+  filters STUN, splits the remaining six bounded TURN URLs for isolation, and
+  rejects `s: "error"` envelopes without exposing provider payloads. A live
+  provider authentication request succeeded and observed the single-object,
+  seven-URL shape; no credentials or account identifiers were retained.
+  The corrected compiled adapter also succeeded against the real provider,
+  returning six isolated TURN entries (two UDP, two TCP, two TLS).
+  Targeted Worker tests (14), typecheck, lint, and production build passed.
+  Real two-device TURN allocation/connectivity remains unverified.
+- Delegation: Terra medium implemented the bounded response-schema fix and
+  fabricated-response regressions; the root performed the user-authorized
+  live provider/adapter diagnosis and integration. Astra was selected by the
+  user for this investigation, not an automatic model escalation.
 - Corrected managed TURN issuance to the Xirsys-provided Node contract: `PUT`
   the exact channel path with Basic `ident:secret` server authentication and
   JSON body `{"format":"urls"}`. Channel path segments are preserved and safely
