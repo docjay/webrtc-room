@@ -47,6 +47,10 @@
   room. It omits minimum-length messaging, exposes a dedicated Apply/Disable
   action after authorization, announces status accessibly, and invalidates
   delayed credential responses when room access ends.
+- **Relay mismatch feedback pending deployment:** surrounding whitespace is
+  normalized on the configured and submitted diagnostic code. Authorized
+  incorrect-code requests receive a specific relay error, while room
+  authorization failures remain generic.
 - **Coordination traffic fix pending deployment:** unchanged capabilities are
   published once per participant/configuration generation instead of every
   500 ms. Waiting room-status checks use bounded exponential backoff, settled

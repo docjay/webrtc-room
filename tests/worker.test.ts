@@ -381,6 +381,7 @@ describe('worker room integration', () => {
         body: JSON.stringify({ accessCode: 'wrong-access-code' }),
       });
       expect(invalid.status).toBe(403);
+      expect(await invalid.json()).toEqual({ error: 'The TURN relay access code is incorrect' });
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
@@ -425,13 +426,13 @@ describe('worker room integration', () => {
         XIRSYS_IDENT: 'test-ident',
         XIRSYS_SECRET: 'test-secret',
         XIRSYS_CHANNEL: 'channel with space',
-        DIAGNOSTIC_ACCESS_CODE: 'A7B9C2',
+        DIAGNOSTIC_ACCESS_CODE: '  A7B9C2\n',
       });
       const { host, auth } = await credentials(request);
       const response = await request(`/api/rooms/${host.roomCode}/turn-credentials`, {
         method: 'POST',
         headers: auth(host),
-        body: JSON.stringify({ accessCode: 'A7B9C2' }),
+        body: JSON.stringify({ accessCode: '\tA7B9C2 ' }),
       });
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({

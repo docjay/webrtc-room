@@ -2,6 +2,10 @@
 
 ## Current milestone - Codex Sites deployment candidate, 2026-09-08
 
+- Normalized incidental surrounding whitespace on the hosted diagnostic access
+  code and authorized browser submission. An incorrect code now returns a
+  relay-specific message after room authorization instead of the ambiguous
+  `forbidden`; room and participant authorization failures remain generic.
 - Moved the optional TURN relay access code from advanced diagnostics onto the
   primary room surface. Participant-facing copy is provider-neutral and omits
   password-policy details. In-room relay activation/removal now has its own

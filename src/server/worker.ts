@@ -54,7 +54,7 @@ const endpointsSchema = z
   )
   .max(9);
 const turnCredentialsRequestSchema = z
-  .object({ accessCode: z.string().min(TURN_ACCESS_CODE_MIN_LENGTH).max(256) })
+  .object({ accessCode: z.string().trim().min(TURN_ACCESS_CODE_MIN_LENGTH).max(256) })
   .strict();
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
@@ -153,16 +153,17 @@ export function createWorker(deps: Dependencies = {}) {
           if (!(await repo.roomStatus(room.data))) return json({ error: 'forbidden' }, 403);
           const input = turnCredentialsRequestSchema.safeParse(await body(request));
           if (!input.success) return json({ error: 'invalid TURN credential request' }, 400);
+          const configuredAccessCode = env.DIAGNOSTIC_ACCESS_CODE?.trim();
           if (
             !env.XIRSYS_IDENT ||
             !env.XIRSYS_SECRET ||
             !env.XIRSYS_CHANNEL ||
-            !env.DIAGNOSTIC_ACCESS_CODE ||
-            env.DIAGNOSTIC_ACCESS_CODE.length < TURN_ACCESS_CODE_MIN_LENGTH
+            !configuredAccessCode ||
+            configuredAccessCode.length < TURN_ACCESS_CODE_MIN_LENGTH
           )
             return json({ error: 'TURN credential service is not configured' }, 503);
-          if (!(await accessCodeMatches(input.data.accessCode, env.DIAGNOSTIC_ACCESS_CODE)))
-            return json({ error: 'forbidden' }, 403);
+          if (!(await accessCodeMatches(input.data.accessCode, configuredAccessCode)))
+            return json({ error: 'The TURN relay access code is incorrect' }, 403);
           try {
             return json(
               await requestXirsysTurnCredentials({
