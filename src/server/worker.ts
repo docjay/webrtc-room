@@ -7,6 +7,7 @@ import {
   redact,
   roomCodeSchema,
   runIdSchema,
+  TURN_ACCESS_CODE_MIN_LENGTH,
   buildProfiles,
 } from '../shared/domain.js';
 import { requestXirsysTurnCredentials, XirsysError } from './xirsys.js';
@@ -52,7 +53,9 @@ const endpointsSchema = z
       .strict(),
   )
   .max(9);
-const turnCredentialsRequestSchema = z.object({ accessCode: z.string().min(16).max(256) }).strict();
+const turnCredentialsRequestSchema = z
+  .object({ accessCode: z.string().min(TURN_ACCESS_CODE_MIN_LENGTH).max(256) })
+  .strict();
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   if (value && typeof value === 'object') {
@@ -155,7 +158,7 @@ export function createWorker(deps: Dependencies = {}) {
             !env.XIRSYS_SECRET ||
             !env.XIRSYS_CHANNEL ||
             !env.DIAGNOSTIC_ACCESS_CODE ||
-            env.DIAGNOSTIC_ACCESS_CODE.length < 16
+            env.DIAGNOSTIC_ACCESS_CODE.length < TURN_ACCESS_CODE_MIN_LENGTH
           )
             return json({ error: 'TURN credential service is not configured' }, 503);
           if (!(await accessCodeMatches(input.data.accessCode, env.DIAGNOSTIC_ACCESS_CODE)))

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export const TURN_ACCESS_CODE_MIN_LENGTH = 6;
+
 const id = (prefix: string) => z.string().regex(new RegExp(`^${prefix}_[A-Za-z0-9]{12,64}$`));
 export const runIdSchema = id('run');
 export const attemptIdSchema = id('att');

@@ -31,6 +31,10 @@
   awaits cleanup. Draft access-code edits cannot alter an active relay session,
   and aggregate default, managed, and custom ICE limits are validated before
   state changes rather than during rendering.
+- The managed relay access-code minimum is six characters across the browser,
+  Worker validation, tests, and deployment guidance. Deployment guidance still
+  requires a randomly generated code because this shorter shared secret has
+  less brute-force resistance.
 - Diagnosed a real two-iPhone Safari failure from paired reports: both devices
   passed HTTPS, WebRTC API, signaling reachability, host gathering, and STUN
   gathering, but every paired row ended at the 30-second data-channel deadline.

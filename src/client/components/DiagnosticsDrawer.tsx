@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
+import { TURN_ACCESS_CODE_MIN_LENGTH } from '../../shared/domain.js';
 import { CompactReport } from './CompactReport.js';
 import type { DiagnosticGroup, DiagnosticsCallbacks, DiagnosticsViewModel } from './types.js';
 
@@ -287,6 +288,7 @@ export function DiagnosticsDrawer({ open, model, callbacks, openerRef }: Diagnos
               <span>Xirsys relay access code</span>
               <input
                 autoComplete="off"
+                minLength={TURN_ACCESS_CODE_MIN_LENGTH}
                 onChange={(event) => callbacks.onTurnAccessCodeChange(event.target.value)}
                 placeholder="Optional shared access code"
                 spellCheck={false}
@@ -295,8 +297,9 @@ export function DiagnosticsDrawer({ open, model, callbacks, openerRef }: Diagnos
               />
             </label>
             <p>
-              {model.advancedSettings.turnStatus} The code stays only in this tab and is exchanged
-              for temporary credentials after room authorization.
+              {model.advancedSettings.turnStatus} Use at least {TURN_ACCESS_CODE_MIN_LENGTH}{' '}
+              characters. The code stays only in this tab and is exchanged for temporary credentials
+              after room authorization.
             </p>
             <label className="field">
               <span>Optional STUN/TURN server JSON</span>

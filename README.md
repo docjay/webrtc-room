@@ -21,11 +21,12 @@ continues with direct/STUN diagnostics:
 XIRSYS_IDENT='<xirsys-ident>' \
 XIRSYS_SECRET='<xirsys-secret>' \
 XIRSYS_CHANNEL='<xirsys-channel>' \
-DIAGNOSTIC_ACCESS_CODE='<long-random-shared-code>' \
+DIAGNOSTIC_ACCESS_CODE='<six-or-more-random-characters>' \
 npm run dev
 ```
 
-Never commit these values. In production, configure them as hosted runtime
+Never commit these values. Use a randomly generated access code of at least six
+characters. In production, configure all values as hosted runtime
 secrets/settings. The Xirsys secret and shared access code stay server-side;
 authorized browsers receive only temporary TURN credentials. TURN paths skip
 all speed-check traffic.

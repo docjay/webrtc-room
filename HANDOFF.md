@@ -314,8 +314,8 @@ Hosted configuration now declares the Sites project ID and logical D1 binding:
 - `XIRSYS_IDENT`: server-only Xirsys account identifier.
 - `XIRSYS_SECRET`: server-only Xirsys API secret.
 - `XIRSYS_CHANNEL`: Xirsys channel used for temporary TURN issuance.
-- `DIAGNOSTIC_ACCESS_CODE`: long random code shared only with invited
-  diagnostic participants.
+- `DIAGNOSTIC_ACCESS_CODE`: randomly generated code of at least six characters,
+  shared only with invited diagnostic participants.
 
 The local development contract remains:
 

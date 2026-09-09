@@ -322,14 +322,14 @@ describe('worker room integration', () => {
         XIRSYS_IDENT: 'test-ident',
         XIRSYS_SECRET: 'test-secret',
         XIRSYS_CHANNEL: 'test-channel',
-        DIAGNOSTIC_ACCESS_CODE: 'valid-access-code',
+        DIAGNOSTIC_ACCESS_CODE: 'A7B9C2',
       });
       const { host, auth } = await credentials(request);
       await DB.prepare('UPDATE rooms SET expires_at=0 WHERE code=?').bind(host.roomCode).run();
       const response = await request(`/api/rooms/${host.roomCode}/turn-credentials`, {
         method: 'POST',
         headers: auth(host),
-        body: JSON.stringify({ accessCode: 'valid-access-code' }),
+        body: JSON.stringify({ accessCode: 'A7B9C2' }),
       });
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({ error: 'forbidden' });
@@ -369,6 +369,12 @@ describe('worker room integration', () => {
         body: JSON.stringify({ accessCode: 1 }),
       });
       expect(malformed.status).toBe(400);
+      const tooShort = await request(`/api/rooms/${room.host.roomCode}/turn-credentials`, {
+        method: 'POST',
+        headers: room.auth(room.host),
+        body: JSON.stringify({ accessCode: 'A7B9C' }),
+      });
+      expect(tooShort.status).toBe(400);
       const invalid = await request(`/api/rooms/${room.host.roomCode}/turn-credentials`, {
         method: 'POST',
         headers: room.auth(room.host),
@@ -419,13 +425,13 @@ describe('worker room integration', () => {
         XIRSYS_IDENT: 'test-ident',
         XIRSYS_SECRET: 'test-secret',
         XIRSYS_CHANNEL: 'channel with space',
-        DIAGNOSTIC_ACCESS_CODE: 'valid-access-code',
+        DIAGNOSTIC_ACCESS_CODE: 'A7B9C2',
       });
       const { host, auth } = await credentials(request);
       const response = await request(`/api/rooms/${host.roomCode}/turn-credentials`, {
         method: 'POST',
         headers: auth(host),
-        body: JSON.stringify({ accessCode: 'valid-access-code' }),
+        body: JSON.stringify({ accessCode: 'A7B9C2' }),
       });
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({

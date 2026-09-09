@@ -59,6 +59,7 @@ test('automatic checks keep explicit intent pending and the mobile drawer access
   await page.getByText('Advanced network settings', { exact: true }).click();
   await expect(page.getByLabel('Xirsys relay access code')).toHaveAttribute('type', 'password');
   await expect(page.getByLabel('Xirsys relay access code')).toHaveAttribute('autocomplete', 'off');
+  await expect(page.getByLabel('Xirsys relay access code')).toHaveAttribute('minlength', '6');
   const serverJson = page.getByLabel('Optional STUN/TURN server JSON');
   await expect(serverJson).toHaveAttribute('placeholder', /"iceServers"/);
   await expect(page.getByText(/STUN discovers public network addresses/)).toBeVisible();

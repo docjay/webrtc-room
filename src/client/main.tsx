@@ -7,6 +7,7 @@ import {
   profileUsesTurn,
   sanitizeIceConfig,
   selectEligibleProfile,
+  TURN_ACCESS_CODE_MIN_LENGTH,
   type DiagnosticEvent,
   type IceConfig,
   type Profile,
@@ -459,6 +460,12 @@ function App() {
     startChecks(Boolean(credentials));
   }, [credentials, startChecks]);
   const applySettings = useCallback(async () => {
+    if (turnAccessCode.trim() && turnAccessCode.trim().length < TURN_ACCESS_CODE_MIN_LENGTH) {
+      setFieldError(
+        `The Xirsys relay access code must contain at least ${TURN_ACCESS_CODE_MIN_LENGTH} characters.`,
+      );
+      return;
+    }
     let parsed: IceConfig;
     try {
       parsed = draftIceText.trim()
