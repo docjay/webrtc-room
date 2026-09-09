@@ -13,7 +13,7 @@
   the real provider, producing six isolated entries (two UDP, two TCP, two TLS).
   Real two-device TURN allocation/connectivity remains pending.
 - **Branch:** `main`
-- **Implementation source commit:** `0342a1624177dadb04486ed0fb73dd4cdd97f633`
+- **Implementation source commit:** `412e6e57859bd902312ee03520576e7917e841a3`
 - **Starting/planning commit:** `1c62490`
 - **Worktree:**
   `/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`
