@@ -51,6 +51,11 @@
   normalized on the configured and submitted diagnostic code. Authorized
   incorrect-code requests receive a specific relay error, while room
   authorization failures remain generic.
+- **Xirsys request correction pending deployment:** credential issuance now
+  follows the provider-supplied Node example: `PUT /_turn/{channel-path}` with
+  server-only Basic `ident:secret` authentication and
+  `{"format":"urls"}`. Channel path segments remain path segments, and rejected
+  API credentials/channel receive a distinct sanitized message.
 - **Coordination traffic fix pending deployment:** unchanged capabilities are
   published once per participant/configuration generation instead of every
   500 ms. Waiting room-status checks use bounded exponential backoff, settled

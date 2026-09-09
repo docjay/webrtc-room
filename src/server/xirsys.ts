@@ -28,7 +28,9 @@ export class XirsysError extends Error {
   constructor(
     readonly status: 502 | 504,
     override readonly message:
-      'TURN credential service unavailable' | 'TURN credential service timed out',
+      | 'TURN credential service unavailable'
+      | 'TURN credential service timed out'
+      | 'TURN provider rejected its API credentials or channel',
   ) {
     super(message);
   }
@@ -41,6 +43,15 @@ function basicAuthorization(ident: string, secret: string): string {
   return `Basic ${btoa(binary)}`;
 }
 
+function channelPath(channel: string): string {
+  return channel
+    .trim()
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
 export async function requestXirsysTurnCredentials(config: {
   ident: string;
   secret: string;
@@ -48,24 +59,24 @@ export async function requestXirsysTurnCredentials(config: {
 }): Promise<TurnCredentials> {
   let response: Response;
   try {
-    response = await fetch(
-      `https://global.xirsys.net/_turn/${encodeURIComponent(config.channel)}`,
-      {
-        method: 'POST',
-        headers: {
-          authorization: basicAuthorization(config.ident, config.secret),
-          'content-type': 'application/json',
-        },
-        body: '{}',
-        signal: AbortSignal.timeout(10_000),
+    const body = JSON.stringify({ format: 'urls' });
+    response = await fetch(`https://global.xirsys.net/_turn/${channelPath(config.channel)}`, {
+      method: 'PUT',
+      headers: {
+        authorization: basicAuthorization(config.ident, config.secret),
+        'content-type': 'application/json',
       },
-    );
+      body,
+      signal: AbortSignal.timeout(10_000),
+    });
   } catch (error) {
     if (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))
       throw new XirsysError(504, 'TURN credential service timed out');
     throw new XirsysError(502, 'TURN credential service unavailable');
   }
 
+  if ([401, 403].includes(response.status))
+    throw new XirsysError(502, 'TURN provider rejected its API credentials or channel');
   if (!response.ok) throw new XirsysError(502, 'TURN credential service unavailable');
 
   let payload: unknown;

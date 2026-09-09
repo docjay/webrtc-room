@@ -2,6 +2,12 @@
 
 ## Current milestone - Codex Sites deployment candidate, 2026-09-08
 
+- Corrected managed TURN issuance to the Xirsys-provided Node contract: `PUT`
+  the exact channel path with Basic `ident:secret` server authentication and
+  JSON body `{"format":"urls"}`. Channel path segments are preserved and safely
+  encoded, and provider credential/channel rejection is distinguished from
+  timeout, network, and malformed-response failures without exposing upstream
+  bodies or secrets.
 - Normalized incidental surrounding whitespace on the hosted diagnostic access
   code and authorized browser submission. An incorrect code now returns a
   relay-specific message after room authorization instead of the ambiguous

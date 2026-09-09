@@ -425,7 +425,7 @@ describe('worker room integration', () => {
       const { request } = await fixture({
         XIRSYS_IDENT: 'test-ident',
         XIRSYS_SECRET: 'test-secret',
-        XIRSYS_CHANNEL: 'channel with space',
+        XIRSYS_CHANNEL: '/account/channel with space/',
         DIAGNOSTIC_ACCESS_CODE: '  A7B9C2\n',
       });
       const { host, auth } = await credentials(request);
@@ -454,8 +454,14 @@ describe('worker room integration', () => {
           },
         ],
       });
-      expect(upstreamRequest?.url).toBe('https://global.xirsys.net/_turn/channel%20with%20space');
-      expect(upstreamRequest?.init?.method).toBe('POST');
+      expect(upstreamRequest?.url).toBe(
+        'https://global.xirsys.net/_turn/account/channel%20with%20space',
+      );
+      expect(upstreamRequest?.init?.method).toBe('PUT');
+      expect(upstreamRequest?.init?.body).toBe('{"format":"urls"}');
+      expect(new Headers(upstreamRequest?.init?.headers).get('content-type')).toBe(
+        'application/json',
+      );
       expect(new Headers(upstreamRequest?.init?.headers).get('authorization')).toBe(
         'Basic dGVzdC1pZGVudDp0ZXN0LXNlY3JldA==',
       );
@@ -485,6 +491,11 @@ describe('worker room integration', () => {
         upstream: () => Promise.resolve(new Response('provider error', { status: 500 })),
         expectedStatus: 502,
         expectedError: 'TURN credential service unavailable',
+      },
+      {
+        upstream: () => Promise.resolve(new Response('provider rejection', { status: 403 })),
+        expectedStatus: 502,
+        expectedError: 'TURN provider rejected its API credentials or channel',
       },
       {
         upstream: () => Promise.reject(new DOMException('timed out', 'TimeoutError')),
