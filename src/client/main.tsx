@@ -29,6 +29,9 @@ import './styles.css';
 
 const defaults = ['stun:stun.cloudflare.com:3478'];
 const defaultStunSummary = 'Default STUN discovery server: stun.cloudflare.com:3478';
+const COORDINATION_INITIAL_DELAY_MS = 500;
+const COORDINATION_MAX_WAIT_DELAY_MS = 5_000;
+const COORDINATION_SETTLED_DELAY_MS = 15_000;
 function configuredIce(managed: IceConfig, customText: string): IceConfig {
   const custom = customText.trim()
     ? iceConfigSchema.parse(JSON.parse(customText) as unknown)
@@ -299,6 +302,7 @@ function App() {
   const uploadAttempts = useRef(0);
   const suiteGeneration = useRef(0);
   const retryPreviousAttempt = useRef<string | null>(null);
+  const submittedCapabilities = useRef('');
   const checksVersion = String(configurationVersion);
 
   const scheduleUpload = useCallback(() => {
@@ -596,11 +600,15 @@ function App() {
     submitting,
   ]);
 
-  async function coordinate() {
+  async function coordinate(): Promise<void> {
     if (!credentials || coordinating.current) return;
     coordinating.current = true;
     try {
-      await api.submitCapabilities(credentials, sanitizeIceConfig(appliedConfig));
+      const capabilityVersion = `${credentials.participantId}:${checksVersion}`;
+      if (submittedCapabilities.current !== capabilityVersion) {
+        await api.submitCapabilities(credentials, sanitizeIceConfig(appliedConfig));
+        submittedCapabilities.current = capabilityVersion;
+      }
       const room = await api.status(credentials);
       if (!room.guestPresent || !room.capabilitiesReady) {
         setMain('Waiting for the other device');
@@ -653,11 +661,47 @@ function App() {
   useEffect(() => {
     if (!credentials || !deviceChecks.ready || deviceChecks.configurationVersion !== checksVersion)
       return;
-    const first = window.setTimeout(() => void coordinate(), 10);
-    const timer = window.setInterval(() => void coordinate(), 500);
+    let timer: number | undefined;
+    let stopped = false;
+    let waitingPolls = 0;
+    const schedule = (delay: number) => {
+      if (stopped || document.visibilityState === 'hidden') return;
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        void poll();
+      }, delay);
+    };
+    const poll = async () => {
+      await coordinate();
+      if (stopped) return;
+      if (started.current) {
+        waitingPolls = 0;
+        schedule(COORDINATION_SETTLED_DELAY_MS);
+        return;
+      }
+      const delay = Math.min(
+        COORDINATION_MAX_WAIT_DELAY_MS,
+        COORDINATION_INITIAL_DELAY_MS * 2 ** waitingPolls,
+      );
+      waitingPolls++;
+      schedule(delay);
+    };
+    const visibilityChanged = () => {
+      if (document.visibilityState === 'hidden') {
+        if (timer !== undefined) window.clearTimeout(timer);
+        timer = undefined;
+        return;
+      }
+      waitingPolls = 0;
+      schedule(0);
+    };
+    document.addEventListener('visibilitychange', visibilityChanged);
+    schedule(10);
     return () => {
-      window.clearTimeout(first);
-      window.clearInterval(timer);
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', visibilityChanged);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [

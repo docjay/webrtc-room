@@ -155,12 +155,22 @@ test('managed TURN exchanges an in-memory access code only after room authorizat
 test('two devices auto-check, connect, exchange chat, finish the matrix, and render one report', async ({
   browser,
 }) => {
+  const coordinationRequests = { capabilities: 0, status: 0 };
   const hostContext = await browser.newContext({
     permissions: ['clipboard-read', 'clipboard-write'],
   });
   const guestContext = await browser.newContext({
     permissions: ['clipboard-read', 'clipboard-write'],
   });
+  const countCoordinationRequest = (request: { method(): string; url(): string }) => {
+    const url = new URL(request.url());
+    if (request.method() === 'POST' && /\/api\/rooms\/[^/]+\/capabilities$/.test(url.pathname))
+      coordinationRequests.capabilities++;
+    if (request.method() === 'GET' && /\/api\/rooms\/[^/]+$/.test(url.pathname))
+      coordinationRequests.status++;
+  };
+  hostContext.on('request', countCoordinationRequest);
+  guestContext.on('request', countCoordinationRequest);
   await Promise.all([
     hostContext.addInitScript(() => {
       window.__WEBRTC_TEST_PERF_LIMITS__ = {
@@ -236,6 +246,11 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   await expect(
     host.locator('.diagnostics-drawer').getByText(/Complete: RTT min\/median\/p95\/max/),
   ).toBeVisible({ timeout: 20_000 });
+  expect(coordinationRequests.capabilities).toBe(2);
+  const settledRequests = { ...coordinationRequests };
+  await host.waitForTimeout(3_000);
+  expect(coordinationRequests.capabilities).toBe(settledRequests.capabilities);
+  expect(coordinationRequests.status - settledRequests.status).toBeLessThanOrEqual(1);
   await expect(
     host
       .locator('.diagnostics-drawer')

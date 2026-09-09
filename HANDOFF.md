@@ -42,6 +42,11 @@
   Xirsys credentials through the Worker. Long-term Xirsys values never reach
   the browser, D1, reports, logs, URLs, or Git. The client refreshes temporary
   credentials immediately before each Xirsys-backed relay probe.
+- **Coordination traffic fix pending deployment:** unchanged capabilities are
+  published once per participant/configuration generation instead of every
+  500 ms. Waiting room-status checks use bounded exponential backoff, settled
+  rooms check every 15 seconds only for retries, and hidden tabs do not poll.
+  This removes the analytics spike from the room-lifetime tight loop.
 - Safari review terminology is incorporated: advanced settings identify the
   sole Cloudflare STUN discovery server, show an optional valid STUN/TURN JSON
   example and explain both server roles, while the bandwidth preference is

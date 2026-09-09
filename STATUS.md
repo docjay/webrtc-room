@@ -2,6 +2,14 @@
 
 ## Current milestone - Codex Sites deployment candidate, 2026-09-08
 
+- Removed the room-lifetime 500 ms coordination loop exposed by hosted
+  analytics. Each participant now publishes unchanged capabilities once per
+  configuration generation; waiting status checks back off from 500 ms to five
+  seconds, settled rooms check for retries every 15 seconds, and hidden tabs
+  stop coordination polling. For a settled two-device room this reduces the
+  two affected endpoints from about 240 requests/minute to about 8, while the
+  browser test verifies capabilities are not reposted and status does not
+  resume a tight loop after diagnostics complete.
 - Physical two-iPhone Safari validation passed after deployment of the serialized
   polling fix. The supplied hosted report selected direct host/UDP, verified
   bidirectional application traffic, passed five paired STUN-assisted rows with
