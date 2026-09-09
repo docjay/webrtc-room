@@ -3,7 +3,7 @@
 ## Current handoff - Codex Sites deployment candidate, 2026-09-08
 
 - **Branch:** `main`
-- **Implementation source commit:** `35bf305f5297b46a339ae2643d10f24fc14d6dad`
+- **Implementation source commit:** `8c42f6e63bd1a72c41b3d3b7a22007bbfeb7037a`
 - **Starting/planning commit:** `1c62490`
 - **Worktree:**
   `/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`
