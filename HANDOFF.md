@@ -1,5 +1,48 @@
 # Copilot build handoff
 
+## Stage-specific STUN outcomes - 2026-09-10
+
+This wording/evidence correction distinguishes STUN address discovery from
+mapped-address connectivity. The displayed category becomes **STUN mapped-address
+connectivity**, retaining `stun-assisted` identifiers, filtering, scheduling and
+strict pass rules. The card explains that this check withholds host candidates
+from signaling, unlike ordinary ICE with local fallback.
+
+Timeout details use evidence gathered in the current probe, not cached preflight:
+local mapped-address discovery, applied remote description, accepted candidates,
+last ICE state and channel opening. The reported stalled mapped path now reads
+`STUN address discovery succeeded; mapped-address connectivity timed out (ICE connection=disconnected)`.
+Waiting for an offer/answer, absent discovery and actual signaling HTTP/application
+errors have distinct messages. Normal in-flight requests are not failures.
+Cancellation and signaling failures close promptly; captured pre-close evidence
+survives cleanup and deadline conversion. No NAT/firewall diagnosis is inferred.
+
+The shared category label is in `src/shared/domain.ts`; the explanation is in
+`DiagnosticsDrawer.tsx`; engine details are in `webrtc.ts`; `main.tsx` preserves
+them through deadline conversion and existing report surfaces. No new database
+fields or migration, handshake change, credential configuration or hosted operation.
+
+Terra medium implemented the engine classification and focused runner coverage,
+including integration corrections to request attribution and lifecycle cleanup.
+Root owns label/UI/report integration, controlled browser coverage and final
+deadline-event preservation. No additional model escalation.
+
+Local evidence on 2026-09-10: `npm run check` passed 107 unit/integration cases,
+formatting, typecheck, lint and production builds. Targeted Chromium command
+`npm run test:browser -- --grep 'preserves the stalled STUN|recovers a dropped early probe'`
+passed two cases in 34 seconds. Withholding STUN answers in a real two-page app
+preserves the waiting stage in cards, pair details, events, copied reports and
+compact summaries; Direct still connects. The existing dropped-challenge case
+also retains Direct and working chat. Deterministic runner tests cover both
+timer and abort deadlines during a healthy pending poll, pre-close state,
+immediate error closure and emitted detail consistency.
+
+These controlled cases are not external mapped-address/TURN traversal evidence.
+The previously recorded local public-STUN limitation was not reclassified as a
+pass. Deploy matching client/Worker artifacts from this milestone, preserve
+migrations/settings, refresh both clients and create a new room. Existing saved
+reports do not gain new stage evidence retroactively.
+
 ## Asymmetric probe handshake and managed refresh - 2026-09-10
 
 Implementation source commit: `8e187fe098b753bb66f9ba83468ded9e99fd62ed`.

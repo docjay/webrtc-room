@@ -262,7 +262,7 @@ export function buildProfiles(
     },
     {
       id: 'stun-assisted',
-      label: 'STUN-assisted',
+      label: 'STUN mapped-address connectivity',
       tier: 0,
       alternatives: alternatives('stun-assisted', a, b),
     },

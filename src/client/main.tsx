@@ -1050,7 +1050,7 @@ function App() {
           local = {
             ...local,
             outcome: 'timeout',
-            detail: 'local probe deadline reached before synchronization',
+            detail: `local probe deadline reached before synchronization; ${local.detail}`,
           };
         if (actualEndpoint)
           local = { ...local, detail: `actual endpoint ${actualEndpoint}; ${local.detail}` };

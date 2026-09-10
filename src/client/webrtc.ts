@@ -26,6 +26,49 @@ export type ProbeTerminal = {
   close: () => void;
 };
 export const PAIRED_PROBE_DEADLINE_MS = 30_000;
+
+export type ProbeFailureEvidence = {
+  requestedCandidateType?: 'srflx' | 'relay' | 'host';
+  localRequestedCandidateDiscovered: boolean;
+  remoteDescriptionApplied: boolean;
+  remoteCandidatesAccepted: number;
+  iceConnectionState: RTCIceConnectionState;
+  channelOpened: boolean;
+  signalingFailure?: 'http' | 'apply';
+  interrupted?: 'cancelled' | 'deadline';
+  timedOut: boolean;
+};
+
+export function classifyProbeFailure(evidence: ProbeFailureEvidence): string {
+  if (evidence.interrupted === 'cancelled') return 'probe cancelled before completion';
+  if (evidence.signalingFailure === 'http')
+    return 'signaling HTTP request failed before probe completion';
+  if (evidence.signalingFailure === 'apply')
+    return 'remote offer, answer, or candidate application failed before probe completion';
+
+  const beforeDeadline = evidence.timedOut || evidence.interrupted === 'deadline';
+  if (!beforeDeadline) return 'probe ended before a verified channel result';
+  if (!evidence.remoteDescriptionApplied)
+    return 'waiting for remote offer/answer; no remote description was applied before the probe deadline';
+  if (!evidence.localRequestedCandidateDiscovered) {
+    if (evidence.requestedCandidateType === 'srflx')
+      return 'No STUN mapped address was observed before the probe deadline';
+    if (evidence.requestedCandidateType === 'relay')
+      return 'No TURN relay candidate was observed before the probe deadline';
+    if (evidence.requestedCandidateType === 'host')
+      return 'No local host candidate was observed before the probe deadline';
+  }
+  if (!evidence.remoteCandidatesAccepted)
+    return 'local candidate discovery completed, but no remote candidates were accepted before the probe deadline';
+  if (evidence.iceConnectionState === 'connected' || evidence.iceConnectionState === 'completed')
+    return evidence.channelOpened
+      ? 'data channel opened, but application verification did not complete before the probe deadline'
+      : 'ICE connected, but the data channel did not open before the probe deadline';
+  if (evidence.requestedCandidateType === 'srflx')
+    return `STUN address discovery succeeded; mapped-address connectivity timed out (ICE connection=${evidence.iceConnectionState})`;
+  return `ICE connectivity timed out (ICE connection=${evidence.iceConnectionState})`;
+}
+
 export function nonOverlapping<T>(work: () => Promise<T>) {
   let running = false;
   return async (): Promise<T | undefined> => {
@@ -261,6 +304,11 @@ export function candidatePolicy(
 function describePair(pair: PairEvidence) {
   return `${pair.localType}/${pair.localProtocol}/${pair.localRelayProtocol} → ${pair.remoteType}/${pair.remoteProtocol}/${pair.remoteRelayProtocol}`;
 }
+function embeddedCandidateCount(description: RTCSessionDescriptionInit) {
+  return typeof description.sdp === 'string'
+    ? (description.sdp.match(/^a=candidate:/gm) ?? []).length
+    : 0;
+}
 export async function runPairedProbe(args: {
   api: ApiClient;
   credentials: Credentials;
@@ -308,11 +356,18 @@ export async function runPairedProbe(args: {
     channel: RTCDataChannel | undefined,
     done = false,
     remoteDescriptionSet = false,
-    pollFailure: Error | undefined;
+    pollFailure: Error | undefined,
+    signalingFailure: ProbeFailureEvidence['signalingFailure'],
+    interrupted: ProbeFailureEvidence['interrupted'],
+    localRequestedCandidateDiscovered = false,
+    remoteCandidatesAccepted = 0,
+    channelOpened = false;
+  let observedIceConnectionState = pc.iceConnectionState;
   let rejectOpened: ((error: Error) => void) | undefined;
   let handshake: ProbeHandshake | undefined;
   let openTimer: number | undefined;
   let terminalRecorded = false;
+  let capturedFailureEvidence: Omit<ProbeFailureEvidence, 'timedOut'> | undefined;
   const pendingCandidates: RTCIceCandidateInit[] = [];
   const detachDiagnostics = () => {
     pc.onicecandidate = null;
@@ -322,6 +377,7 @@ export async function runPairedProbe(args: {
     pc.onsignalingstatechange = null;
   };
   const close = () => {
+    if (done) return;
     done = true;
     handshake?.dispose();
     if (openTimer !== undefined) window.clearTimeout(openTimer);
@@ -340,14 +396,52 @@ export async function runPairedProbe(args: {
     terminalRecorded = true;
     diagnostics.terminal(outcome, pc);
   };
+  const requestedProfile = host ? profile.a : profile.b;
+  const requestedCandidateType = requestedProfile.startsWith('stun-')
+    ? 'srflx'
+    : requestedProfile.startsWith('turn-')
+      ? 'relay'
+      : requestedProfile.startsWith('direct-')
+        ? 'host'
+        : undefined;
+  const captureFailureEvidence = (): Omit<ProbeFailureEvidence, 'timedOut'> => ({
+    ...(requestedCandidateType ? { requestedCandidateType } : {}),
+    localRequestedCandidateDiscovered,
+    remoteDescriptionApplied: remoteDescriptionSet,
+    remoteCandidatesAccepted,
+    iceConnectionState: observedIceConnectionState,
+    channelOpened,
+    ...(signalingFailure ? { signalingFailure } : {}),
+    ...(interrupted ? { interrupted } : {}),
+  });
+  const failureDetail = (outcome: ProbeTerminal['outcome']) =>
+    classifyProbeFailure({
+      ...(capturedFailureEvidence ?? captureFailureEvidence()),
+      timedOut: outcome === 'timeout',
+    });
   const finish = (result: ProbeTerminal) => {
     terminal(result.outcome);
     return result;
   };
   const transmit = (type: 'offer' | 'answer' | 'candidate' | 'bye', payload: string) =>
     api.sendSignal(credentials, attempt, probeId, pairId, peerId, { type, payload }, signal);
+  const fail = (stage: NonNullable<ProbeFailureEvidence['signalingFailure']>) => {
+    if (done) return;
+    signalingFailure = stage;
+    pollFailure = new Error(
+      stage === 'http' ? 'signaling request failed' : 'signaling application failed',
+    );
+    capturedFailureEvidence = captureFailureEvidence();
+    diagnostics.emit('failure', 'failure', failureDetail('failure'));
+    rejectOpened?.(pollFailure);
+    terminal('failure');
+    close();
+  };
   pc.onicegatheringstatechange = () => diagnostics.state('ICE gathering', pc.iceGatheringState);
-  pc.oniceconnectionstatechange = () => diagnostics.state('ICE connection', pc.iceConnectionState);
+  pc.oniceconnectionstatechange = () => {
+    observedIceConnectionState = pc.iceConnectionState;
+    diagnostics.state('ICE connection', observedIceConnectionState);
+  };
   pc.onsignalingstatechange = () => diagnostics.state('signaling', pc.signalingState);
   pc.onicecandidateerror = (event) => diagnostics.candidateError(event.errorText, event.errorCode);
   pc.onicecandidate = ({ candidate }) => {
@@ -360,15 +454,10 @@ export async function runPairedProbe(args: {
       diagnostics.candidate('local', 'filtered', candidate);
       return;
     }
+    localRequestedCandidateDiscovered = true;
     void transmit('candidate', JSON.stringify(candidate.toJSON()))
       .then(() => diagnostics.candidate('local', 'signaled', candidate))
-      .catch((error: unknown) => {
-        pollFailure = error instanceof Error ? error : new Error('candidate signaling failed');
-        diagnostics.emit('failure', 'failure', 'candidate signaling failed');
-        rejectOpened?.(pollFailure);
-        terminal('failure');
-        close();
-      });
+      .catch(() => fail('http'));
   };
   const opened = new Promise<RTCDataChannel>((resolve, reject) => {
     openTimer = window.setTimeout(() => reject(new Error('data channel deadline')), deadlineMs);
@@ -389,6 +478,7 @@ export async function runPairedProbe(args: {
       const onOpen = () => {
         if (openedOnce || done) return;
         openedOnce = true;
+        channelOpened = true;
         if (openTimer !== undefined) clearTimeout(openTimer);
         rejectOpened = undefined;
         diagnostics.emit('operation', 'success', 'data channel open');
@@ -408,9 +498,15 @@ export async function runPairedProbe(args: {
     };
   });
   const pollSignals = nonOverlapping(async () => {
-    if (done || cancelled() || pollFailure) return;
+    if (done || cancelled() || signal?.aborted || pollFailure) return;
+    let response: Awaited<ReturnType<ApiClient['pollSignals']>>;
     try {
-      const response = await api.pollSignals(credentials, attempt, probeId, pairId, cursor, signal);
+      response = await api.pollSignals(credentials, attempt, probeId, pairId, cursor, signal);
+    } catch {
+      if (!done && !cancelled() && !signal?.aborted) fail('http');
+      return;
+    }
+    try {
       for (const signal of response.signals) {
         cursor = signal.id;
         const parsed: unknown = JSON.parse(signal.body);
@@ -419,16 +515,18 @@ export async function runPairedProbe(args: {
         if (typeof message.type !== 'string' || typeof message.payload !== 'string') continue;
         if (message.type === 'offer') {
           const description = JSON.parse(message.payload) as RTCSessionDescriptionInit;
+          await pc.setRemoteDescription(description);
           diagnostics.embeddedCandidates(
             'offer',
             typeof description.sdp === 'string' ? description.sdp : '',
           );
-          await pc.setRemoteDescription(description);
           remoteDescriptionSet = true;
+          remoteCandidatesAccepted += embeddedCandidateCount(description);
           diagnostics.state('remote offer', 'applied');
           for (const candidate of pendingCandidates) {
             try {
               await pc.addIceCandidate(candidate);
+              remoteCandidatesAccepted++;
               diagnostics.candidate('remote', 'accepted', new RTCIceCandidate(candidate));
             } catch {
               diagnostics.candidate('remote', 'rejected', new RTCIceCandidate(candidate));
@@ -438,19 +536,26 @@ export async function runPairedProbe(args: {
           pendingCandidates.length = 0;
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
-          await transmit('answer', JSON.stringify(answer));
+          try {
+            await transmit('answer', JSON.stringify(answer));
+          } catch {
+            fail('http');
+            return;
+          }
         } else if (message.type === 'answer') {
           const description = JSON.parse(message.payload) as RTCSessionDescriptionInit;
+          await pc.setRemoteDescription(description);
           diagnostics.embeddedCandidates(
             'answer',
             typeof description.sdp === 'string' ? description.sdp : '',
           );
-          await pc.setRemoteDescription(description);
           remoteDescriptionSet = true;
+          remoteCandidatesAccepted += embeddedCandidateCount(description);
           diagnostics.state('remote answer', 'applied');
           for (const candidate of pendingCandidates) {
             try {
               await pc.addIceCandidate(candidate);
+              remoteCandidatesAccepted++;
               diagnostics.candidate('remote', 'accepted', new RTCIceCandidate(candidate));
             } catch {
               diagnostics.candidate('remote', 'rejected', new RTCIceCandidate(candidate));
@@ -471,6 +576,7 @@ export async function runPairedProbe(args: {
           if (remoteDescriptionSet) {
             try {
               await pc.addIceCandidate(candidate);
+              remoteCandidatesAccepted++;
               diagnostics.candidate('remote', 'accepted', safeCandidate);
             } catch {
               diagnostics.candidate('remote', 'rejected', safeCandidate);
@@ -483,15 +589,7 @@ export async function runPairedProbe(args: {
         }
       }
     } catch {
-      pollFailure = new Error('signaling poll failed');
-      diagnostics.emit(
-        'failure',
-        'failure',
-        'signaling poll or remote candidate application failed',
-      );
-      rejectOpened?.(pollFailure);
-      terminal('failure');
-      close();
+      if (!done && !cancelled() && !signal?.aborted) fail('apply');
     }
   });
   const poll = window.setInterval(() => void pollSignals(), 150);
@@ -500,28 +598,49 @@ export async function runPairedProbe(args: {
       ? 'timeout'
       : 'cancelled';
   const abort = () => {
+    interrupted = interruptedOutcome() === 'timeout' ? 'deadline' : 'cancelled';
+    capturedFailureEvidence = captureFailureEvidence();
+    diagnostics.emit('failure', 'failure', failureDetail(interruptedOutcome()));
     rejectOpened?.(new DOMException('attempt cancelled', 'AbortError'));
     terminal(interruptedOutcome());
     close();
   };
   try {
-    if (signal?.aborted || cancelled()) throw new DOMException('attempt cancelled', 'AbortError');
+    if (signal?.aborted) {
+      interrupted = interruptedOutcome() === 'timeout' ? 'deadline' : 'cancelled';
+      throw new DOMException('attempt cancelled', 'AbortError');
+    }
+    if (cancelled()) {
+      interrupted = 'cancelled';
+      throw new DOMException('attempt cancelled', 'AbortError');
+    }
     signal?.addEventListener('abort', abort, { once: true });
     diagnostics.startStats(pc);
     if (host) {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      await transmit('offer', JSON.stringify(offer));
+      try {
+        await transmit('offer', JSON.stringify(offer));
+      } catch {
+        if (!cancelled() && !signal?.aborted) fail('http');
+        throw new Error('offer signaling failed');
+      }
       diagnostics.emit('operation', 'success', 'local offer created and signaled');
     }
     const active = await opened;
     if (pollFailure) throw pollFailure;
     if (!handshake) throw new Error('probe handshake unavailable');
     const verified = await handshake.verify();
+    if (pollFailure || signal?.aborted || cancelled())
+      throw pollFailure ?? new DOMException('attempt cancelled', 'AbortError');
     const selected = await selectedPair(pc, diagnostics);
+    if (pollFailure || signal?.aborted || cancelled())
+      throw pollFailure ?? new DOMException('attempt cancelled', 'AbortError');
     const policy = candidatePolicy(profile, selected, host);
     const localPass = verified && !policy;
     const peerVerdict = await handshake.confirm(localPass);
+    if (pollFailure || signal?.aborted || cancelled())
+      throw pollFailure ?? new DOMException('attempt cancelled', 'AbortError');
     if (!verified)
       return finish({
         outcome: 'inconclusive',
@@ -558,7 +677,6 @@ export async function runPairedProbe(args: {
       close,
     });
   } catch {
-    diagnostics.emit('failure', 'failure', 'probe negotiation or signaling failed');
     const outcome = signal?.aborted
       ? interruptedOutcome()
       : cancelled()
@@ -566,9 +684,13 @@ export async function runPairedProbe(args: {
         : performance.now() - start >= deadlineMs - 500
           ? 'timeout'
           : 'failure';
+    if (outcome === 'cancelled') interrupted = 'cancelled';
+    if (outcome === 'timeout' && signal?.aborted) interrupted = 'deadline';
+    const detail = failureDetail(outcome);
+    if (!terminalRecorded) diagnostics.emit('failure', 'failure', detail);
     return finish({
       outcome,
-      detail: 'probe negotiation or signaling failed',
+      detail,
       elapsedMs: performance.now() - start,
       close,
     });

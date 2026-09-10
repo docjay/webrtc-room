@@ -53,6 +53,17 @@ Once both peers join and are ready, automatically schedule five capability categ
 
 STUN is a discovery mechanism, not a separate media/data transport. Separate endpoint discovery/allocation checks from the paired categories. For STUN-assisted tests isolate the requested endpoint and report the actual selected host/srflx/prflx pair. If a host path wins, that does not establish that a srflx path worked. Candidate-constrained testing must be verified; inability to isolate a path is inconclusive/unsupported, never success under another label. Direct ICE-TCP isolation remains an unsupported device capability explanation, not additional paired rows.
 
+Display the existing `stun-assisted` category as **STUN mapped-address connectivity**.
+Explain that local host candidates are withheld from signaling in this check,
+unlike normal ICE with local fallback. Preserve the existing category ID,
+candidate filtering, budgets and pass criteria. Timeout details must distinguish
+local address discovery, offer/answer exchange, remote candidate availability,
+ICE connectivity, channel opening and the application handshake, using evidence
+from the current probe rather than assuming an earlier preflight still applies.
+Successful discovery followed by stalled mapped-address ICE must say so in the
+event log, shared results and exports. Preserve pre-close ICE state on deadlines;
+do not infer NAT hairpinning, firewall policy or a STUN outage from a timeout.
+
 Build the five-category manifest from BOTH devices' sanitized endpoint capabilities without sharing TURN secrets. Within a category, pair endpoint variants in deterministic order, never a Cartesian product. Try the primary pair first, using another port/endpoint only if no verified pass was obtained and the shared category budget permits. Match transport categories when both devices configure TURN; when only one does, test that side's relay against the other side's STUN-assisted or direct configuration. Missing configuration is an explicit not-configured category. Mixed-transport and exhaustive one-sided/two-sided combinations are no longer part of the automatic scope. Details and exports identify each requested endpoint on A and B, actual selected-pair evidence, queued/active/terminal status and timing, and alternatives not tried. No claim that every possible endpoint, interface, candidate pair, or NAT route was tested.
 
 Each category reports whether it worked. If Direct also passed, describe a later success as an alternative path verified, not increased connectivity. Only describe added connectivity in this run when the direct baseline explicitly failed; unsupported, inconclusive, and timed-out baselines do not establish a general connectivity improvement.

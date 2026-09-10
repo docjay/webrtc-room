@@ -110,6 +110,7 @@ describe('domain rules', () => {
       'turn-tcp',
     ]);
     expect(categories[0]!.alternatives).toHaveLength(1);
+    expect(categories[1]!.label).toBe('STUN mapped-address connectivity');
     expect(categories.slice(1).every((category) => !category.alternatives.length)).toBe(true);
   });
   it('bounds six-by-six TURN configuration to five category rows', () => {

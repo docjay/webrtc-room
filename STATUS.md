@@ -1,5 +1,29 @@
 # Status - room-first UX redesign implemented
 
+## Current milestone - stage-specific STUN outcomes, 2026-09-10
+
+- The user requested clearer wording after a report showed successful STUN
+  discovery and signaling but stalled mapped-address ICE. Do not diagnose
+  NAT/firewall policy or a STUN service outage from that timeout.
+- Renamed the display category to STUN mapped-address connectivity, retaining
+  `stun-assisted` IDs and all existing filtering, pass rules and time budgets.
+  The card explains host-candidate withholding and separate Device checks discovery.
+- Current-probe evidence now separates missing discovery, pending offer/answer,
+  real signaling errors, missing remote candidates, ICE connectivity and channel
+  opening. Mapped ICE stalls explicitly report successful STUN discovery.
+  Deadline/abort details retain pre-close state and survive shared results,
+  cards, pair details, event logs, compact summaries and copied reports.
+- Terra medium implemented classification and runner regressions, correcting
+  in-flight-request attribution and lifecycle handling during integration.
+  Root integrated display/report wording, browser coverage and deadline-event
+  preservation. No additional model escalation or hosted changes.
+- `npm run check` passed 107 tests, formatting/type/lint and production builds.
+  Two targeted Chromium cases passed: controlled withheld STUN answers preserve
+  the waiting stage through all report surfaces, while real local Direct ping
+  recovery/chat still work. These do not establish external STUN/TURN traversal.
+- Ready for Codex deployment of matching client/Worker artifacts. No new migration
+  or handshake change; refresh clients and start a new room for new evidence.
+
 ## Current milestone - asymmetric probes and relay refresh, 2026-09-10
 
 - Both supplied Codex-tab reports show a succeeded, nominated host/UDP pair

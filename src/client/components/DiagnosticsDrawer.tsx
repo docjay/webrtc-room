@@ -76,6 +76,13 @@ function DrawerGroup({ group }: { group: DiagnosticGroup }) {
                     </span>
                   </div>
                   <p>{row.evidence}</p>
+                  {row.id === 'stun-assisted' && (
+                    <p className="capability-help">
+                      Tests mapped-address connectivity without signaling local host candidates.
+                      Address discovery is reported separately in Device checks; a connectivity
+                      timeout does not mean the STUN server failed.
+                    </p>
+                  )}
                   <small>
                     Queued: {row.queued} · Active: {row.active}
                   </small>
