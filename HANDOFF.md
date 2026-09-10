@@ -2,6 +2,11 @@
 
 ## TURN evidence classification correction - 2026-09-09
 
+Implementation source commit: `360843d49366f336243fb0cec7181c9fb8d7869f`.
+Branch: `work/ux-redesign-plan`; worktree:
+`/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`.
+The subsequent documentation commit pins this source for `main`.
+
 The user's deployed two-device report established successful relay allocations
 and bidirectional application pings for UDP, TCP, and TLS alternatives. Each
 device reported its own selected local relay transport; the corresponding
