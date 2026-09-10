@@ -4,6 +4,8 @@
 
 Branch: `work/ux-redesign-plan`.
 Worktree: `/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`.
+Implementation source commit: `39386defaa1508e66d27a7b35021dc7b51195e4c`.
+The subsequent handoff-only commit pins this source for fast-forward to `main`.
 
 This milestone replaces the earlier exhaustive endpoint matrix. The canonical
 manifest has five categories: Direct, STUN-assisted, TURN UDP, TURN TLS, TURN
