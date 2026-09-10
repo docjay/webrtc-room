@@ -1,5 +1,53 @@
 import { expect, test, type BrowserContext } from '@playwright/test';
 
+for (const peerVerdict of ['inconclusive', 'withheld'] as const) {
+  test(`requires peer confirmation when its verdict is ${peerVerdict}`, async ({ browser }) => {
+    const hostContext = await browser.newContext();
+    const guestContext = await browser.newContext();
+    await guestContext.addInitScript((mode) => {
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- Reflect.apply preserves the actual channel receiver.
+      RTCDataChannel.prototype.send = new Proxy(RTCDataChannel.prototype.send, {
+        apply(send, channel: RTCDataChannel, args: unknown[]) {
+          if (args[0] === 'probe-verdict:pass') {
+            if (mode === 'withheld') return;
+            args[0] = 'probe-verdict:inconclusive';
+          }
+          Reflect.apply(send, channel, args);
+        },
+      });
+    }, peerVerdict);
+    const host = await hostContext.newPage();
+    const guest = await guestContext.newPage();
+    try {
+      await host.goto('/');
+      await host.getByRole('button', { name: 'Create a room' }).click();
+      await expect(host.getByRole('heading', { name: 'Waiting for the other device' })).toBeVisible(
+        {
+          timeout: 25_000,
+        },
+      );
+      const code = ((await host.locator('.invitation-card strong').textContent()) ?? '').trim();
+      await guest.goto(`/?room=${code}`);
+      await guest.getByRole('button', { name: 'Join room' }).click();
+      for (const page of [host, guest]) {
+        await expect(page.getByText('Network checks: 5 of 5 complete')).toBeVisible({
+          timeout: 90_000,
+        });
+        await expect(page.getByText('Unable to connect', { exact: true })).toBeVisible();
+        await page.getByRole('button', { name: /diagnostics/i }).click();
+        await page.getByText('Connection checks', { exact: true }).click();
+        const direct = page.locator('.capability-card').filter({
+          has: page.getByText('Direct', { exact: true }),
+        });
+        await expect(direct).toContainText('inconclusive');
+      }
+    } finally {
+      await hostContext.close();
+      await guestContext.close();
+    }
+  });
+}
+
 async function useShortPerformanceProbe(...contexts: BrowserContext[]) {
   await Promise.all(
     contexts.map((context) =>

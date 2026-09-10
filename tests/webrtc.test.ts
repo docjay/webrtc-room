@@ -1,6 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import { iceConfigSchema, type Profile } from '../src/shared/domain.js';
-import { candidateMatchesProfile, nonOverlapping, requestedServers } from '../src/client/webrtc.js';
+import {
+  candidateMatchesProfile,
+  candidatePolicy,
+  nonOverlapping,
+  requestedServers,
+  type PairEvidence,
+} from '../src/client/webrtc.js';
+
+const pair = (overrides: Partial<PairEvidence> = {}): PairEvidence => ({
+  localType: 'relay',
+  remoteType: 'relay',
+  localProtocol: 'udp',
+  remoteProtocol: 'udp',
+  localRelayProtocol: 'udp',
+  remoteRelayProtocol: 'unavailable',
+  ...overrides,
+});
+
+const turnProfile = (a: string, b: string): Profile => ({
+  id: `profile_${a}_${b}`,
+  a,
+  b,
+  aLabel: a,
+  bLabel: b,
+  tier: 1,
+  status: 'queued',
+});
 
 describe('isolated matrix ICE configuration', () => {
   it('serializes signaling polls so response order cannot regress the cursor', async () => {
@@ -73,4 +99,71 @@ describe('isolated matrix ICE configuration', () => {
       expect(rtc.iceServers?.[0]?.urls).toBe(url);
     }
   });
+
+  it.each([
+    ['udp', pair({ localRelayProtocol: 'udp' })],
+    ['tcp', pair({ localRelayProtocol: 'tcp' })],
+    ['tls', pair({ localRelayProtocol: 'tls' })],
+  ] as const)(
+    'accepts local %s TURN evidence and unavailable remote relay protocol',
+    (transport, evidence) => {
+      expect(
+        candidatePolicy(turnProfile(`turn-${transport}-0`, `turn-${transport}-1`), evidence, true),
+      ).toBeUndefined();
+    },
+  );
+
+  it.each([
+    ['udp', pair({ localRelayProtocol: 'udp' })],
+    ['tcp', pair({ localRelayProtocol: 'tcp' })],
+    ['tls', pair({ localRelayProtocol: 'tls' })],
+  ] as const)(
+    'applies the same local TURN protocol check for guest %s evidence',
+    (transport, evidence) => {
+      expect(
+        candidatePolicy(turnProfile(`turn-${transport}-0`, `turn-${transport}-1`), evidence, false),
+      ).toBeUndefined();
+    },
+  );
+
+  it('rejects missing, mismatched, and TCP-for-TLS local relay protocol evidence', () => {
+    const profile = turnProfile('turn-tls-0', 'turn-tls-1');
+    expect(candidatePolicy(profile, pair({ localRelayProtocol: 'unavailable' }), true)).toBe(
+      'selected pair relay protocol evidence unavailable',
+    );
+    expect(candidatePolicy(profile, pair({ localRelayProtocol: 'udp' }), true)).toBe(
+      'selected pair relay protocol did not match requested endpoint',
+    );
+    expect(candidatePolicy(profile, pair({ localRelayProtocol: 'tcp' }), true)).toBe(
+      'selected pair relay protocol did not match requested endpoint',
+    );
+  });
+
+  it('requires relay candidate types on both sides despite unavailable remote relay protocol', () => {
+    const profile = turnProfile('turn-udp-0', 'turn-udp-1');
+    expect(candidatePolicy(profile, pair({ remoteType: 'host' }), true)).toBe(
+      'selected pair did not prove requested relay on this side',
+    );
+    expect(candidatePolicy(profile, pair({ localType: 'host' }), true)).toBe(
+      'selected pair did not prove requested relay on this side',
+    );
+  });
+
+  it.each([
+    [true, pair({ remoteType: 'host', localRelayProtocol: 'udp' })],
+    [
+      false,
+      pair({
+        localType: 'host',
+        remoteType: 'relay',
+        localRelayProtocol: 'unavailable',
+      }),
+    ],
+  ] as const)(
+    'permits one-sided TURN only when the requesting peer has local proof (%s)',
+    (host, evidence) => {
+      const profile = turnProfile('turn-udp-0', 'direct-udp');
+      expect(candidatePolicy(profile, evidence, host)).toBeUndefined();
+    },
+  );
 });

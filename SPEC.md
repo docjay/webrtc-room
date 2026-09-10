@@ -32,6 +32,7 @@ Build a two-device WebRTC data-channel demo with diagnostics before, during, and
 - Preflight can run without a second device. Probe each STUN endpoint and each configured TURN URL independently with a disposable peer connection, bounded timer, and cleanup. Report candidate gathering/allocation independently from actual peer connectivity.
 - The default connection policy and automatic matrix are defined below. Individual TURN probes isolate each URL. Tests requiring a relay on both devices require both devices to configure TURN; one-sided relay tests are distinct and use only the required side's credentials.
 - Display direct UDP, observed ICE-TCP, TURN UDP/TCP/TLS evidence separately. Candidate `protocol` and TURN `relayProtocol` represent different hops. Preserve raw supported fields; label unavailable fields rather than guessing.
+- Each device verifies its requested TURN transport using its own selected local relay candidate's `relayProtocol`: `udp`, `tcp`, or `tls`. Remote relay transport stats may be unavailable; verify that transport through the other device's local verdict, not a required remote `relayProtocol` field. Both devices must still confirm the requested candidate types, application ping, and their local transport evidence before a paired pass. Missing or mismatched local evidence remains inconclusive; plain `tcp` does not prove TLS.
 
 ## Required diagnostics and bounded capability checks
 

@@ -1,5 +1,24 @@
 # Status - room-first UX redesign implemented
 
+## Current milestone - TURN evidence classification, 2026-09-09
+
+- A user-provided deployed two-device report shows successful allocations at
+  all six configured relay endpoints and bidirectional application pings on
+  the selected relay pairs. Both devices reported their local relay transport
+  as UDP, TCP, or TLS; remote relay transport fields were unavailable.
+- Fixed the classifier's remote relay transport requirement and TLS comparison
+  against `tcp`. Terra medium implemented the scoped correction and policy
+  regressions; root added bilateral browser coverage and owns documentation,
+  integration and commits. No model escalation.
+- Preserve both peers' confirmation and strict local evidence rather than
+  guessing from endpoint URLs. Keep raw unavailable remote fields in reports.
+  Typecheck, lint, formatting and 21 targeted policy/scheduler tests passed.
+  Real local Chromium two-device chat/report smoke passed; two additional
+  browser cases reject inconclusive/withheld peer verdicts using injected
+  control messages. Production bundles built through the browser runner.
+  The corrected TURN policy is covered by synthetic reported-stat fixtures,
+  not a new live TURN run. Codex deployment is next; no new migration is needed.
+
 ## Current milestone - five capability checks, 2026-09-09
 
 - Replacing the automatic Cartesian endpoint matrix with Direct, STUN-assisted,

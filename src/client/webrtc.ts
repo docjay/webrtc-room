@@ -158,7 +158,7 @@ export function candidateMatchesProfile(
   return false;
 }
 
-type PairEvidence = {
+export type PairEvidence = {
   localType: string;
   remoteType: string;
   localProtocol: string;
@@ -204,22 +204,28 @@ async function selectedPair(pc: RTCPeerConnection): Promise<PairEvidence | undef
   }
   return undefined;
 }
-function candidatePolicy(profile: Profile, selected: PairEvidence | undefined, host: boolean) {
+export function candidatePolicy(
+  profile: Profile,
+  selected: PairEvidence | undefined,
+  host: boolean,
+) {
   if (!selected) return 'selected pair stats unavailable';
   if (profile.a === 'direct-tcp' || profile.b === 'direct-tcp')
     return 'browser cannot force ICE-TCP or a specific pair';
   const requested = host ? [profile.a, profile.b] : [profile.b, profile.a];
   const types = [selected.localType, selected.remoteType];
   const protocols = [selected.localProtocol, selected.remoteProtocol];
-  const relayProtocols = [selected.localRelayProtocol, selected.remoteRelayProtocol];
   const relayRequested = requested.map((endpoint) => endpoint.startsWith('turn-'));
   for (let index = 0; index < 2; index++) {
     if (!relayRequested[index]) continue;
     const transport = requested[index]!.split('-')[1];
     if (types[index] !== 'relay') return 'selected pair did not prove requested relay on this side';
-    if (relayProtocols[index] === 'unavailable')
+    // The remote relay protocol is not exposed by all browsers. The remote
+    // peer validates its own local relay protocol before confirming its verdict.
+    if (index === 1) continue;
+    if (selected.localRelayProtocol === 'unavailable')
       return 'selected pair relay protocol evidence unavailable';
-    if (relayProtocols[index] !== (transport === 'tls' ? 'tcp' : transport))
+    if (selected.localRelayProtocol !== transport)
       return 'selected pair relay protocol did not match requested endpoint';
   }
   if (!relayRequested.some(Boolean) && types.includes('relay'))

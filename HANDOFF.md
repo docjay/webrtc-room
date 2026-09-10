@@ -1,5 +1,39 @@
 # Copilot build handoff
 
+## TURN evidence classification correction - 2026-09-09
+
+The user's deployed two-device report established successful relay allocations
+and bidirectional application pings for UDP, TCP, and TLS alternatives. Each
+device reported its own selected local relay transport; the corresponding
+remote transport field was unavailable. The UI incorrectly reported
+inconclusive because it required the remote field, and because it expected
+`tcp` instead of `tls` for the TLS category.
+
+The correction verifies each device's own selected local TURN transport and
+keeps the existing two-peer verdict/shared-terminal-result requirement. Missing
+local evidence, mismatched local transport, wrong candidate types, failed ping,
+and absent/rejected peer confirmation must not pass. Raw remote unavailable
+fields remain honest evidence, not inferred values.
+
+No additional migration or wire-format change is required for this correction.
+Preserve migrations 0001 through 0003 and deployed settings. After deploying,
+refresh both devices and create a new room; otherwise an old client can still
+reject a valid relay path. Reconfirm the primary UDP/TCP/TLS categories pass
+with actual relay evidence and unnecessary alternate ports remain not tried.
+
+Terra medium implemented the bounded classifier and policy regressions; the
+user-selected root integrated it and added browser peer-confirmation coverage.
+No escalation or new live credential use was needed.
+
+Evidence: typecheck, lint and format checks passed; targeted
+`tests/webrtc.test.ts` and `tests/capability-scheduler.test.ts` passed 21 cases.
+The ordinary Chromium two-device chat/report case passed. Two added real local
+RTC cases inject inconclusive/withheld peer verdicts and confirm neither client
+accepts a pass; both passed. Browser setup built production client/Worker
+bundles. Transport-specific fixtures are synthetic reproductions of the
+reported stats. The supplied report is real-run evidence, not a new locally
+executed TURN test or proof of different-network traversal.
+
 ## Capability-check redesign - 2026-09-09
 
 Branch: `work/ux-redesign-plan`.
