@@ -19,6 +19,7 @@ function focusableElements(container: HTMLElement) {
 }
 
 function DrawerGroup({ group }: { group: DiagnosticGroup }) {
+  const [showPairDetails, setShowPairDetails] = useState(false);
   return (
     <details className="diagnostic-group">
       <summary>
@@ -41,30 +42,80 @@ function DrawerGroup({ group }: { group: DiagnosticGroup }) {
           </ul>
         )}
         {group.matrix && (
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Profile</th>
-                  <th>Outcome</th>
-                  <th>Queued</th>
-                  <th>Active</th>
-                  <th>Evidence</th>
-                </tr>
-              </thead>
-              <tbody>
-                {group.matrix.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.profile}</td>
-                    <td>{row.outcome}</td>
-                    <td>{row.queued}</td>
-                    <td>{row.active}</td>
-                    <td>{row.evidence}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <p className="capability-help">
+              Five capability checks, not every endpoint combination. Alternate endpoints are tried
+              only if needed; details show the configured pairs and what actually ran.
+            </p>
+            <div className="capability-view" role="group" aria-label="Connection checks view">
+              <button
+                className="button button--secondary"
+                type="button"
+                aria-pressed={!showPairDetails}
+                onClick={() => setShowPairDetails(false)}
+              >
+                Summary
+              </button>
+              <button
+                className="button button--secondary"
+                type="button"
+                aria-pressed={showPairDetails}
+                onClick={() => setShowPairDetails(true)}
+              >
+                Pair details
+              </button>
+            </div>
+            <ul className="capability-list">
+              {group.matrix.map((row) => (
+                <li className="capability-card" key={row.id}>
+                  <div className="capability-card__heading">
+                    <strong>{row.profile}</strong>
+                    <span className="tag" role="status">
+                      {row.outcome}
+                    </span>
+                  </div>
+                  <p>{row.evidence}</p>
+                  <small>
+                    Queued: {row.queued} · Active: {row.active}
+                  </small>
+                  {showPairDetails &&
+                    (row.details?.length ? (
+                      <div
+                        className="table-scroll"
+                        role="region"
+                        aria-label={`${row.profile} pair evidence`}
+                        tabIndex={0}
+                      >
+                        <table aria-label={`${row.profile} pair details`}>
+                          <thead>
+                            <tr>
+                              <th>Requested endpoints (A → B)</th>
+                              <th>Status</th>
+                              <th>Queued / active</th>
+                              <th>Observed pair and evidence</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {row.details.map((pair) => (
+                              <tr key={pair.id}>
+                                <td>{pair.endpoints}</td>
+                                <td>{pair.status}</td>
+                                <td>
+                                  {pair.queued} / {pair.active}
+                                </td>
+                                <td>{pair.evidence}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p>No endpoints configured for this check.</p>
+                    ))}
+                </li>
+              ))}
+            </ul>
+          </>
         )}
         {group.events && (
           <ol className="event-list">

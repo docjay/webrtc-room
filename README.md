@@ -33,4 +33,12 @@ all speed-check traffic.
 
 ## Evidence limits
 
+Paired diagnostics now run five capability checks: Direct, STUN-assisted,
+TURN UDP, TURN TLS, and TURN TCP. Alternate endpoints are fallbacks, not an
+exhaustive pair matrix. Open **Connection checks → Pair details** in the wider
+diagnostics panel for requested endpoints, status, timing, observed paths, and
+alternatives not tried. The view switch does not launch additional probes.
+Upgrading a hosted deployment requires additive D1 migration
+`0003_probe_results.sql`, then refreshed clients and a new room.
+
 Local browser smoke evidence is not NAT traversal, TURN, external STUN reachability, hosted D1, or platform-owner verification. Standard browser APIs cannot guarantee forced ICE-TCP or a specific candidate pair; those profiles are shown as unsupported/inconclusive rather than passed.

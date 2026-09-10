@@ -6,8 +6,8 @@ import {
   iceProfileLabel,
   profileUsesTurn,
   sanitizeIceConfig,
-  selectEligibleProfile,
   type DiagnosticEvent,
+  type DiagnosticCategory,
   type IceConfig,
   type Profile,
 } from '../shared/domain.js';
@@ -18,6 +18,7 @@ import { DiagnosticsDrawer } from './components/DiagnosticsDrawer.js';
 import { RoomSurface } from './components/RoomSurface.js';
 import type { DiagnosticsViewModel, RoomSurfaceModel } from './components/types.js';
 import { PAIRED_PROBE_DEADLINE_MS, runPairedProbe } from './webrtc.js';
+import { scheduleCapabilityCategories, type PairTerminal } from './capability-scheduler.js';
 import {
   CoordinatedPerformance,
   PERFORMANCE_DEFAULTS,
@@ -62,13 +63,27 @@ function alignTemporaryTurnCredentials(reference: IceConfig, fresh: IceConfig): 
   });
 }
 
-type MatrixRow = Profile & {
+type MatrixPair = Profile & {
+  outcome: string;
+  detail: string;
+  attemptStatus: 'not-tried' | 'running' | 'terminal';
+  selected?: string;
+  activeMs: number;
+  queuedMs?: number;
+  deadlineAt?: number;
+};
+type MatrixRow = {
+  id: string;
+  label: string;
+  tier: number;
+  status: 'queued' | 'running' | 'terminal';
   outcome?: string;
-  detail?: string;
+  detail?: string | undefined;
   queuedMs?: number;
   activeMs?: number;
   deadlineAt?: number;
-  selected?: string;
+  selected?: string | undefined;
+  pairs: MatrixPair[];
 };
 const api = new ApiClient();
 const loopback = () => ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
@@ -795,156 +810,349 @@ function App() {
   ) {
     const activeCredentials = credentials;
     if (!activeCredentials) return;
-    const profiles = [...(issued.manifest as unknown as Profile[])].sort(
-      (left, right) => left.tier - right.tier || left.id.localeCompare(right.id),
+    const categories = issued.manifest as DiagnosticCategory[];
+    const queuedAt = new Map(
+      categories.flatMap((category) =>
+        category.alternatives.map((pair) => [pair.id, window.performance.now()] as const),
+      ),
     );
-    setMatrix(profiles.map((row) => ({ ...row, status: 'queued', outcome: 'queued' })));
-    const queuedAt = new Map(profiles.map((profile) => [profile.id, window.performance.now()]));
-    let index = 0;
-    const retained = new Map<
-      number,
-      { row: MatrixRow; channel: RTCDataChannel; close: () => void }
-    >();
-    const completed = new Map<string, MatrixRow>();
+    const categoryQueuedAt = new Map(
+      categories.map((category) => [category.id, window.performance.now()] as const),
+    );
+    setMatrix(
+      categories.map((category) => ({
+        id: category.id,
+        label: category.label,
+        tier: category.tier,
+        status: category.alternatives.length ? 'queued' : 'terminal',
+        outcome: category.alternatives.length ? 'queued' : 'not-configured',
+        detail: category.alternatives.length
+          ? undefined
+          : 'No configured endpoint on either device',
+        pairs: category.alternatives.map((pair) => ({
+          ...pair,
+          status: 'queued',
+          outcome: 'queued',
+          detail: 'not tried',
+          attemptStatus: 'not-tried',
+          activeMs: 0,
+        })),
+      })),
+    );
     const managedEndpointIds = new Set(
       sanitizeIceConfig(managedTurnConfig).map((endpoint) => endpoint.id),
     );
+    const retained = new Map<
+      string,
+      { pair: Profile; channel: RTCDataChannel; close: () => void }
+    >();
+    const matrixAbort = new AbortController();
+    const stopMatrix = () => matrixAbort.abort();
+    cleanups.current.push(stopMatrix);
+    const completedCategories = new Map<
+      string,
+      Awaited<ReturnType<typeof scheduleCapabilityCategories>>[number]
+    >();
     let selectedConnection:
-      { row: MatrixRow; channel: RTCDataChannel; close: () => void } | undefined;
-    const activateEligibleConnection = () => {
-      if (selectedConnection || suite !== suiteGeneration.current) return;
-      const eligible = selectEligibleProfile(
-        profiles.map(
-          (profile) =>
-            completed.get(profile.id) ?? {
-              ...profile,
-              status: 'queued' as const,
-              outcome: 'queued',
-            },
-        ),
+      { pair: Profile; channel: RTCDataChannel; close: () => void } | undefined;
+    const terminalCategory = (
+      result: Awaited<ReturnType<typeof scheduleCapabilityCategories>>[number],
+    ) => {
+      completedCategories.set(result.id, result);
+      if (suite !== suiteGeneration.current || matrixAbort.signal.aborted) return;
+      setMatrix((rows) =>
+        rows.map((row) => {
+          if (row.id !== result.id) return row;
+          const pass = result.pairs.find((pair) => pair.outcome === 'pass');
+          return {
+            ...row,
+            status: 'terminal',
+            outcome: result.outcome,
+            detail: pass?.detail ?? result.pairs.at(-1)?.detail ?? row.detail,
+            selected: pass?.selected,
+            activeMs: result.activeMs,
+            pairs: row.pairs.map((pair) => {
+              const completed = result.pairs.find((value) => value.id === pair.id);
+              return completed
+                ? { ...pair, ...completed, status: 'terminal', attemptStatus: 'terminal' }
+                : pair;
+            }),
+          };
+        }),
       );
-      const connection = eligible ? retained.get(eligible.tier) : undefined;
-      if (!eligible || !connection) return;
+      if (selectedConnection) return;
+      const passing = [...completedCategories.values()]
+        .flatMap((category) =>
+          category.pairs.map((pair) => ({
+            category,
+            pair,
+          })),
+        )
+        .filter(({ pair }) => pair.outcome === 'pass')
+        .sort(
+          (left, right) =>
+            left.pair.tier - right.pair.tier || left.pair.id.localeCompare(right.pair.id),
+        );
+      const candidate = passing.find(({ category, pair }) =>
+        categories
+          .filter(
+            (other) =>
+              other.tier < pair.tier ||
+              (other.tier === pair.tier && other.id.localeCompare(category.id) < 0),
+          )
+          .every((other) => completedCategories.has(other.id)),
+      );
+      const connection = candidate && retained.get(candidate.pair.id);
+      if (!candidate || !connection) return;
       selectedConnection = connection;
-      performanceBlockedByRelay.current = profileUsesTurn(eligible);
+      performanceHost.current = activeCredentials.participantId === room.hostParticipantId;
+      performanceBlockedByRelay.current = profileUsesTurn(candidate.pair);
       mainChannel.current = connection.channel;
       cleanups.current.push(connection.close);
       installChat(connection.channel, suite);
       setMain('Connected');
-      record(
-        `selected path ${iceProfileLabel(eligible.a, appliedConfig)} → ${iceProfileLabel(eligible.b, appliedConfig)}`,
-        'success',
-      );
-    };
-    await Promise.all(
-      Array.from({ length: Math.min(3, profiles.length) }, async () => {
-        for (;;) {
-          const current = index++;
-          if (current >= profiles.length) return;
-          const profile = profiles[current]!;
-          const startedAt = window.performance.now();
-          setMatrix((rows) =>
-            rows.map((row) =>
-              row.id === profile.id
-                ? {
-                    ...row,
-                    status: 'running',
-                    outcome: 'running',
-                    queuedMs: Math.round(startedAt - (queuedAt.get(profile.id) ?? startedAt)),
-                    deadlineAt: Date.now() + PAIRED_PROBE_DEADLINE_MS,
-                  }
-                : row,
-            ),
-          );
-          const host = activeCredentials.participantId === room.hostParticipantId;
-          let probeConfig = appliedConfig;
-          let result: Awaited<ReturnType<typeof runPairedProbe>>;
-          try {
-            if (managedEndpointIds.has(host ? profile.a : profile.b)) {
-              const fresh = await api.turnCredentials(activeCredentials, appliedTurnAccessCode);
-              probeConfig = configuredIce(
-                alignTemporaryTurnCredentials(managedTurnConfig, fresh),
-                appliedIceText,
-              );
-            }
-            result = await runPairedProbe({
-              api,
-              credentials: activeCredentials,
-              attempt: issued,
-              profile,
-              probeId: `prb_${issued.id.slice(4, 24)}${String(current).padStart(2, '0')}`,
-              peerId: host ? room.guestParticipantId! : room.hostParticipantId,
-              host,
-              config: probeConfig,
-              cancelled: () => cancelled.current || suite !== suiteGeneration.current,
-            });
-          } catch {
-            result = {
-              outcome: 'failure',
-              detail: 'temporary TURN credentials could not be refreshed',
-              elapsedMs: window.performance.now() - startedAt,
-              close: () => undefined,
-            };
-          }
-          if (suite !== suiteGeneration.current) {
-            result.close();
-            return;
-          }
-          const row: MatrixRow = {
-            ...profile,
-            status: 'terminal',
-            outcome: result.outcome,
-            detail: result.detail,
-            ...(result.selected ? { selected: result.selected } : {}),
-            activeMs: Math.round(result.elapsedMs),
-          };
-          if (result.outcome === 'pass' && result.channel) {
-            const existing = retained.get(profile.tier);
-            if (!existing || row.id.localeCompare(existing.row.id) < 0) {
-              existing?.close();
-              retained.set(profile.tier, { row, channel: result.channel, close: result.close });
-            } else result.close();
-          } else result.close();
-          completed.set(profile.id, row);
-          activateEligibleConnection();
-          setMatrix((rows) => rows.map((value) => (value.id === profile.id ? row : value)));
-          record(
-            `${iceProfileLabel(profile.a, appliedConfig)} → ${iceProfileLabel(profile.b, appliedConfig)}: ${result.outcome} (${result.detail})`,
-            result.outcome === 'pass'
-              ? 'success'
-              : result.outcome === 'timeout'
-                ? 'timeout'
-                : 'info',
-          );
-        }
-      }),
-    );
-    const terminalRows = profiles.map(
-      (profile) =>
-        completed.get(profile.id) ?? {
-          ...profile,
-          status: 'terminal' as const,
-          outcome: 'cancelled',
-        },
-    );
-    const selected = selectEligibleProfile(terminalRows);
-    for (const [tier, connection] of retained) if (tier !== selected?.tier) connection.close();
-    if (selectedConnection && selected) {
-      performanceHost.current = activeCredentials.participantId === room.hostParticipantId;
-      if (profileUsesTurn(selected)) {
+      record(`selected path ${candidate.pair.aLabel} → ${candidate.pair.bLabel}`, 'success');
+      if (profileUsesTurn(candidate.pair)) {
         setPerformance('Not run: speed checks are disabled on TURN relay paths');
         record('performance skipped on TURN relay path', 'info');
-      } else {
-        void runPerformance(selectedConnection.channel, performanceHost.current);
       }
-    } else {
+    };
+    await scheduleCapabilityCategories(
+      categories,
+      async (category, profile, alternativeIndex, remainingMs, signal) => {
+        if (signal.aborted || suite !== suiteGeneration.current)
+          return { outcome: 'cancelled', detail: 'attempt was cancelled', activeMs: 0 };
+        const startedAt = window.performance.now();
+        const coordinationReserveMs = Math.min(1_000, Math.max(50, Math.floor(remainingMs / 4)));
+        const localSignal = AbortSignal.any([
+          signal,
+          AbortSignal.timeout(Math.max(1, remainingMs - coordinationReserveMs)),
+        ]);
+        const host = activeCredentials.participantId === room.hostParticipantId;
+        setMatrix((rows) =>
+          rows.map((row) =>
+            row.id !== category.id
+              ? row
+              : {
+                  ...row,
+                  status: 'running',
+                  outcome: 'running',
+                  queuedMs:
+                    row.queuedMs ??
+                    Math.round(startedAt - (categoryQueuedAt.get(category.id) ?? startedAt)),
+                  deadlineAt: row.deadlineAt ?? Date.now() + PAIRED_PROBE_DEADLINE_MS,
+                  pairs: row.pairs.map((pair) =>
+                    pair.id === profile.id
+                      ? {
+                          ...pair,
+                          status: 'running',
+                          outcome: 'running',
+                          attemptStatus: 'running',
+                          queuedMs: Math.round(startedAt - (queuedAt.get(pair.id) ?? startedAt)),
+                          deadlineAt: Date.now() + remainingMs,
+                        }
+                      : pair,
+                  ),
+                },
+          ),
+        );
+        let probeConfig = appliedConfig;
+        let local: Awaited<ReturnType<typeof runPairedProbe>>;
+        const needsManagedCredentials = managedEndpointIds.has(host ? profile.a : profile.b);
+        try {
+          if (needsManagedCredentials) {
+            const fresh = await api.turnCredentials(
+              activeCredentials,
+              appliedTurnAccessCode,
+              localSignal,
+            );
+            if (signal.aborted || suite !== suiteGeneration.current)
+              return { outcome: 'cancelled', detail: 'attempt was cancelled', activeMs: 0 };
+            probeConfig = configuredIce(
+              alignTemporaryTurnCredentials(managedTurnConfig, fresh),
+              appliedIceText,
+            );
+          }
+          const probeDeadlineMs = Math.max(0, startedAt + remainingMs - window.performance.now());
+          local =
+            probeDeadlineMs > 0
+              ? await runPairedProbe({
+                  api,
+                  credentials: activeCredentials,
+                  attempt: issued,
+                  profile,
+                  pairId: profile.id,
+                  probeId: `prb_${issued.id.slice(4, 24)}${profile.id.replaceAll('-', '')}`,
+                  peerId: host ? room.guestParticipantId! : room.hostParticipantId,
+                  host,
+                  config: probeConfig,
+                  cancelled: () =>
+                    localSignal.aborted || cancelled.current || suite !== suiteGeneration.current,
+                  signal: localSignal,
+                  deadlineMs: Math.max(1, probeDeadlineMs - coordinationReserveMs),
+                })
+              : {
+                  outcome: 'timeout',
+                  detail: 'category wall-clock deadline was exhausted before this alternative',
+                  elapsedMs: 0,
+                  close: () => undefined,
+                };
+        } catch {
+          local = {
+            outcome: localSignal.aborted ? 'timeout' : 'failure',
+            detail: needsManagedCredentials
+              ? 'temporary TURN credential refresh failed'
+              : 'probe setup failed',
+            elapsedMs: window.performance.now() - startedAt,
+            close: () => undefined,
+          };
+        }
+        if (localSignal.aborted && !signal.aborted && local.outcome === 'cancelled')
+          local = {
+            ...local,
+            outcome: 'timeout',
+            detail: 'local probe deadline reached before synchronization',
+          };
+        if (signal.aborted || suite !== suiteGeneration.current) {
+          local.close();
+          return { outcome: 'cancelled', detail: 'attempt was replaced or cancelled', activeMs: 0 };
+        }
+        let shared;
+        try {
+          try {
+            shared = await api.probeResult(
+              activeCredentials,
+              issued,
+              profile.id,
+              {
+                outcome: local.outcome,
+                detail: local.detail,
+                ...(local.selected ? { selected: local.selected } : {}),
+                elapsedMs: Math.max(0, Math.min(30_000, Math.round(local.elapsedMs))),
+              },
+              signal,
+            );
+          } catch {
+            if (signal.aborted || suite !== suiteGeneration.current) throw new Error('cancelled');
+            // The immutable POST may have reached the server even when its
+            // response hit the ordinary HTTP timeout. Recover the shared
+            // authoritative result before closing a locally verified channel.
+            shared = await api.probeResult(
+              activeCredentials,
+              issued,
+              profile.id,
+              undefined,
+              signal,
+            );
+          }
+          const deadline = startedAt + remainingMs;
+          while (
+            !shared.complete &&
+            window.performance.now() < deadline &&
+            suite === suiteGeneration.current &&
+            !signal.aborted
+          ) {
+            await new Promise((resolve) => window.setTimeout(resolve, 250));
+            if (signal.aborted) break;
+            shared = await api.probeResult(
+              activeCredentials,
+              issued,
+              profile.id,
+              undefined,
+              signal,
+            );
+          }
+        } catch {
+          local.close();
+          return {
+            outcome:
+              signal.aborted || suite !== suiteGeneration.current
+                ? 'cancelled'
+                : localSignal.aborted
+                  ? 'timeout'
+                  : 'failure',
+            detail: 'shared probe result request failed',
+            activeMs: Math.round(window.performance.now() - startedAt),
+            ...(localSignal.aborted ? { stopCategory: true } : {}),
+          };
+        }
+        if (signal.aborted || suite !== suiteGeneration.current) {
+          local.close();
+          return { outcome: 'cancelled', detail: 'attempt was replaced or cancelled', activeMs: 0 };
+        }
+        const outcome = shared.complete
+          ? (shared.outcome as PairTerminal['outcome'])
+          : suite === suiteGeneration.current
+            ? 'timeout'
+            : 'cancelled';
+        const evidence = shared.results
+          .map((result) => {
+            const isHost = result.participant_id === room.hostParticipantId;
+            const label = isHost ? profile.aLabel : profile.bLabel;
+            return `Device ${isHost ? 'A' : 'B'} (${label}): ${result.detail}${
+              result.selected ? `; selected pair ${result.selected}` : ''
+            }`;
+          })
+          .join(' · ');
+        if (outcome === 'pass' && local.channel && !selectedConnection)
+          retained.set(profile.id, { pair: profile, channel: local.channel, close: local.close });
+        else local.close();
+        const terminal = {
+          outcome,
+          detail: shared.complete ? evidence : 'peer terminal result deadline exceeded',
+          ...(local.selected ? { selected: local.selected } : {}),
+          activeMs: Math.round(window.performance.now() - startedAt),
+          ...(!shared.complete ? { stopCategory: true } : {}),
+        };
+        setMatrix((rows) =>
+          rows.map((row) =>
+            row.id !== category.id
+              ? row
+              : {
+                  ...row,
+                  pairs: row.pairs.map((pair) =>
+                    pair.id === profile.id
+                      ? { ...pair, status: 'terminal', attemptStatus: 'terminal', ...terminal }
+                      : pair,
+                  ),
+                },
+          ),
+        );
+        record(
+          `${category.label} alternative ${alternativeIndex + 1}: ${outcome} (${terminal.detail})`,
+          outcome === 'pass' ? 'success' : outcome === 'timeout' ? 'timeout' : 'info',
+        );
+        return terminal;
+      },
+      3,
+      PAIRED_PROBE_DEADLINE_MS,
+      () => matrixAbort.signal.aborted || cancelled.current || suite !== suiteGeneration.current,
+      terminalCategory,
+      false,
+    );
+    cleanups.current = cleanups.current.filter((cleanup) => cleanup !== stopMatrix);
+    if (suite !== suiteGeneration.current) {
+      retained.forEach((connection) => connection.close());
+      return;
+    }
+    retained.forEach((connection) => {
+      if (connection !== selectedConnection) connection.close();
+    });
+    if (selectedConnection && !performanceBlockedByRelay.current) {
+      void runPerformance(selectedConnection.channel, performanceHost.current);
+    } else if (!selectedConnection) {
       setMain('Unable to connect');
       setError(
         'No verified connection path was available. Recheck the device or ask the other device to retry.',
       );
       setPerformance('Not run: no verified connection');
     }
-    record('matrix diagnostics complete', 'success');
+    record(
+      selectedConnection
+        ? 'bounded capability diagnostics complete'
+        : 'bounded capability diagnostics completed without a verified path',
+      selectedConnection ? 'success' : 'failure',
+    );
   }
   async function runPerformance(channel: RTCDataChannel, host: boolean) {
     if (activePerformance.current) return;
@@ -1056,8 +1264,11 @@ function App() {
       deviceChecks,
       matrix: matrix.map((row) => ({
         ...row,
-        a: iceProfileLabel(row.a, appliedConfig),
-        b: iceProfileLabel(row.b, appliedConfig),
+        pairs: row.pairs.map((pair) => ({
+          ...pair,
+          a: pair.aLabel,
+          b: pair.bLabel,
+        })),
       })),
       performance: {
         automaticBandwidthEnabled,
@@ -1315,14 +1526,16 @@ function App() {
   };
   const diagnosticsModel: DiagnosticsViewModel = {
     headline: deviceChecks.phase === 'complete' ? 'Checks complete' : 'Checking this device',
-    progress: `${deviceChecks.progress.completed} of ${deviceChecks.progress.total} device checks; ${matrix.length ? `${counts.terminal ?? 0} of ${matrix.length} connection paths complete` : 'connection paths wait for a peer'}`,
+    progress: `${deviceChecks.progress.completed} of ${deviceChecks.progress.total} device checks; ${matrix.length ? `${counts.terminal ?? 0} of ${matrix.length} capability checks complete` : 'connection checks wait for a peer'}`,
     report: {
       runId: report.runId,
       ...(attempt ? { attemptId: attempt.id } : {}),
       saveStatus: uploadStatus,
-      coverage: `${deviceChecks.results.length} device checks, ${matrix.length} paths`,
+      coverage: `${deviceChecks.results.length} device checks, ${matrix.length} capability checks`,
       outcome: surfaceStatus,
-      path: matrix.find((row) => row.outcome === 'pass')?.selected ?? 'No selected path yet',
+      path:
+        matrix.flatMap((row) => row.pairs).find((pair) => pair.outcome === 'pass')?.selected ??
+        'No selected path yet',
       measurements: performanceDirections.length
         ? `${performanceDirections.length} direction measurements`
         : 'Not measured',
@@ -1336,10 +1549,7 @@ function App() {
               row.outcome !== 'queued' &&
               row.outcome !== 'running',
           )
-          .map(
-            (row) =>
-              `${iceProfileLabel(row.a, appliedConfig)} → ${iceProfileLabel(row.b, appliedConfig)}: ${row.detail ?? row.outcome}`,
-          ),
+          .map((row) => `${row.label}: ${row.detail ?? row.outcome}`),
       ],
     },
     advancedSettings: {
@@ -1392,17 +1602,41 @@ function App() {
       },
       {
         id: 'paths',
-        title: 'Connection paths',
+        title: 'Connection checks',
         summary: matrix.length
           ? `${counts.terminal ?? 0} of ${matrix.length} complete`
           : 'Waiting for peer',
         matrix: matrix.map((row) => ({
           id: row.id,
-          profile: `${iceProfileLabel(row.a, appliedConfig)} → ${iceProfileLabel(row.b, appliedConfig)}`,
+          profile: row.label,
           outcome: row.outcome ?? 'queued',
           queued: `${row.queuedMs ?? 0} ms`,
           active: `${row.activeMs ?? 0} ms`,
-          evidence: row.detail ?? row.selected ?? 'pending',
+          evidence:
+            row.outcome === 'pass'
+              ? row.id === 'direct'
+                ? 'Local candidates connected without STUN or TURN.'
+                : matrix.find((category) => category.id === 'direct')?.outcome === 'pass'
+                  ? 'Alternative path verified; the direct path also worked.'
+                  : matrix.find((category) => category.id === 'direct')?.outcome === 'failure'
+                    ? 'Connected where the direct check failed in this run.'
+                    : 'Path verified; improvement over the direct path is not established.'
+              : row.outcome === 'not-configured'
+                ? 'Not configured on either device.'
+                : (row.detail ?? 'Waiting to run.'),
+          details: row.pairs.map((pair) => ({
+            id: pair.id,
+            endpoints: `${pair.aLabel ?? iceProfileLabel(pair.a, appliedConfig)} → ${pair.bLabel ?? iceProfileLabel(pair.b, appliedConfig)}`,
+            status:
+              pair.status === 'running'
+                ? 'running'
+                : pair.attemptStatus === 'not-tried'
+                  ? 'not tried'
+                  : pair.outcome,
+            evidence: [pair.selected, pair.detail].filter(Boolean).join(' · '),
+            queued: `${pair.queuedMs ?? 0} ms`,
+            active: `${pair.activeMs} ms`,
+          })),
         })),
       },
       {

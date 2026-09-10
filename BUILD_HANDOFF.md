@@ -16,7 +16,7 @@ Copilot builds the actual app locally, including backend services and persistenc
 
 ## Complete locally in Copilot
 
-Implement every SPEC.md flow: mandatory preflight; room lifecycle and concurrent HTTP signaling; automatic configured-path matrix; policy and truthful capability reporting; selected data channel/text demo; timers/candidates/failure evidence; correlated local and persistent reports; RTT/goodput probes; owner review UI; redaction, quotas, retention and authorization logic. Handle cancellation, races, retry generations, backpressure and resource cleanup. Missing hosted auth must not postpone the rest of admin UI, policy and tests.
+Implement every SPEC.md flow: mandatory preflight; room lifecycle and concurrent HTTP signaling; five bounded capability checks with ordered endpoint fallback and pair details; policy and truthful capability reporting; selected data channel/text demo; timers/candidates/failure evidence; correlated local and persistent reports; RTT/goodput probes; owner review UI; redaction, quotas, retention and authorization logic. Handle cancellation, races, retry generations, backpressure and resource cleanup. Missing hosted auth must not postpone the rest of admin UI, policy and tests.
 
 Establish static analysis and unit/integration/browser tests early, then run them. Use actual browser WebRTC for smoke/connectivity evidence. Use fake clocks/RTC adapters only for deterministic protocol/error/math tests. Run controlled local TURN integration when feasible with already available local test infrastructure and temporary credentials; no default production TURN service or committed secrets. External-network/real TLS tests that are unavailable remain explicit gaps, not passing tests.
 

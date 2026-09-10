@@ -80,6 +80,11 @@ export class Repository {
     const changes = await this.db.batch([
       this.db
         .prepare(
+          'DELETE FROM probe_results WHERE participant_id IN (SELECT id FROM participants WHERE room_code=? AND slot=2) AND EXISTS (SELECT 1 FROM rooms WHERE code=? AND guest_id IS NULL)',
+        )
+        .bind(code, code),
+      this.db
+        .prepare(
           'DELETE FROM attempt_acks WHERE participant_id IN (SELECT id FROM participants WHERE room_code=? AND slot=2) AND EXISTS (SELECT 1 FROM rooms WHERE code=? AND guest_id IS NULL)',
         )
         .bind(code, code),
@@ -109,7 +114,7 @@ export class Repository {
         )
         .bind(participantId, tokenHash, now, code, participantId),
     ]);
-    if ((changes[5]?.meta.changes ?? 0) === 1) {
+    if ((changes[6]?.meta.changes ?? 0) === 1) {
       return 'ok';
     }
     const room = await this.room(code);
@@ -127,6 +132,7 @@ export class Repository {
     const now = this.now();
     if (participant.slot === 2) {
       const results = await this.db.batch([
+        this.db.prepare('DELETE FROM probe_results WHERE participant_id=?').bind(participant.id),
         this.db.prepare('DELETE FROM attempt_acks WHERE participant_id=?').bind(participant.id),
         this.db
           .prepare('DELETE FROM room_capabilities WHERE participant_id=?')
@@ -143,7 +149,7 @@ export class Repository {
           )
           .bind(now, now + 900_000, room.code, participant.id),
       ]);
-      return (results[4]?.meta.changes ?? 0) === 1;
+      return (results[5]?.meta.changes ?? 0) === 1;
     }
     await this.db
       .prepare('UPDATE rooms SET updated_at=?,expires_at=? WHERE code=?')
@@ -304,6 +310,60 @@ export class Repository {
       .bind(recipient, generation, probe, cursor, this.now())
       .all<{ id: number; body: string }>();
     return result.results;
+  }
+  async recordProbeResult(
+    attempt: Attempt,
+    participant: Participant,
+    pairId: string,
+    result: { outcome: string; detail: string; selected?: string; elapsedMs: number },
+  ): Promise<void> {
+    await this.db
+      .prepare(
+        'INSERT OR IGNORE INTO probe_results(attempt_id,pair_id,participant_id,outcome,detail,selected,elapsed_ms,created_at) VALUES(?,?,?,?,?,?,?,?)',
+      )
+      .bind(
+        attempt.id,
+        pairId,
+        participant.id,
+        result.outcome,
+        result.detail,
+        result.selected ?? null,
+        Math.max(0, Math.min(30_000, Math.round(result.elapsedMs))),
+        this.now(),
+      )
+      .run();
+  }
+  async probeResultStatus(
+    attempt: Attempt,
+    pairId: string,
+  ): Promise<{
+    complete: boolean;
+    outcome?: string;
+    results: Array<{
+      participant_id: string;
+      outcome: string;
+      detail: string;
+      selected: string | null;
+      elapsed_ms: number;
+    }>;
+  }> {
+    const results = (
+      await this.db
+        .prepare(
+          'SELECT participant_id,outcome,detail,selected,elapsed_ms FROM probe_results WHERE attempt_id=? AND pair_id=? ORDER BY participant_id',
+        )
+        .bind(attempt.id, pairId)
+        .all<{
+          participant_id: string;
+          outcome: string;
+          detail: string;
+          selected: string | null;
+          elapsed_ms: number;
+        }>()
+    ).results;
+    if (results.length !== 2) return { complete: false, results };
+    const failed = results.find((result) => result.outcome !== 'pass');
+    return { complete: true, outcome: failed?.outcome ?? 'pass', results };
   }
   async registerRun(run: string, participant: string, attempt: string | null): Promise<void> {
     const now = this.now();
@@ -479,6 +539,11 @@ export class Repository {
     // Every statement is bounded.  Dependency order makes this safe for
     // existing D1 databases whose original foreign keys did not cascade.
     await this.db.batch([
+      this.db
+        .prepare(
+          'DELETE FROM probe_results WHERE attempt_id IN (SELECT id FROM attempts WHERE room_code IN (SELECT code FROM rooms WHERE expires_at<?) LIMIT 100)',
+        )
+        .bind(now),
       this.db
         .prepare(
           'DELETE FROM signals WHERE id IN (SELECT id FROM signals WHERE expires_at<? LIMIT 100)',

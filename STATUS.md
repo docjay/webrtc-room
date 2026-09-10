@@ -1,5 +1,33 @@
 # Status - room-first UX redesign implemented
 
+## Current milestone - five capability checks, 2026-09-09
+
+- Replacing the automatic Cartesian endpoint matrix with Direct, STUN-assisted,
+  TURN UDP, TURN TLS, and TURN TCP. Alternate endpoints are ordered fallbacks,
+  not cross-products; categories without configuration remain visible.
+- Added Summary and Pair details views. Details expose per-side requested
+  endpoints, outcome, queue/active time, selected-path evidence, and alternatives
+  not tried. Desktop diagnostics expands from at most 31rem to 56rem/60vw;
+  mobile remains full-screen with contained table scrolling.
+- Terra medium owns the bounded scheduler, canonical manifest/result protocol,
+  lifecycle corrections, and targeted regression coverage. Root owns the
+  summary/details presentation, width, documentation, and final integration.
+  The user-selected root remains Astra; no additional Astra review was spawned.
+  Bounded Sol-medium correction followed two Terra passes: integration exposed
+  premature throughput during remaining checks and a shared-result deadline
+  race. Sol corrected deadline/cancellation handling and result-response
+  recovery, with focused delayed-peer browser coverage.
+- New additive migration `0003_probe_results.sql` is required for shared pair
+  decisions. Hosted deployment and real cross-network relay validation remain
+  outside local evidence. Final integration passed `npm run check` (60 tests,
+  static analysis/build) and seven Chromium browser cases, including real
+  two-page chat, five outcomes, report evidence, retry, and drawer layouts.
+  Delayed-result cases preserve chat, defer throughput and recover authoritative
+  results after HTTP timeout. One opt-in WebKit test was skipped. Migration 0003
+  is packaged byte-identically; 0001/0002 remain unchanged. Desktop/mobile
+  screenshots are in the session's `files/capability-evidence/` directory.
+  Next action is Codex deployment with migration 0003 and matching client/Worker.
+
 ## Current milestone - Codex Sites deployment candidate, 2026-09-08
 
 - Fixed managed Xirsys TURN credential parsing for the documented standard

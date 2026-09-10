@@ -310,7 +310,7 @@ button:not(.button):not(.icon-button):hover {
 .participant-slots {
   display: grid;
   gap: 0.7rem;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
   margin-top: 1.4rem;
 }
 
@@ -537,14 +537,81 @@ pre {
   position: fixed;
   right: 0;
   top: 0;
-  width: min(31rem, 44vw);
+  width: min(56rem, 60vw);
   z-index: 10;
 }
 
 body:has(.diagnostics-drawer) .app-shell {
   margin-left: 0;
-  margin-right: min(31rem, 44vw);
-  max-width: calc(100vw - min(31rem, 44vw));
+  margin-right: min(56rem, 60vw);
+  max-width: calc(100vw - min(56rem, 60vw));
+}
+
+.capability-help {
+  color: #59657b;
+  line-height: 1.5;
+}
+
+.capability-view,
+.capability-card__heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.capability-view button[aria-pressed='true'] {
+  background: #172e67;
+  color: #fff;
+}
+
+.capability-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.capability-card {
+  border: 1px solid #d9deea;
+  border-radius: 0.65rem;
+  padding: 0.85rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.capability-card__heading {
+  justify-content: space-between;
+}
+
+.capability-card p {
+  line-height: 1.5;
+}
+
+.capability-card .table-scroll {
+  margin-top: 0.85rem;
+}
+
+.capability-card table {
+  min-width: 44rem;
+  table-layout: fixed;
+  font-size: 0.83rem;
+}
+
+.capability-card th:nth-child(1) {
+  width: 27%;
+}
+
+.capability-card th:nth-child(2) {
+  width: 13%;
+}
+
+.capability-card th:nth-child(3) {
+  width: 17%;
+}
+
+.capability-card th:nth-child(4) {
+  width: 43%;
 }
 
 .diagnostics-drawer__header {

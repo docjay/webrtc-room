@@ -8,6 +8,7 @@ import {
   roomCodeSchema,
 } from '../shared/domain.js';
 import type { DiagnosticEvent, IceConfig } from '../shared/domain.js';
+import type { DiagnosticCategory } from '../shared/domain.js';
 
 const credentialsSchema = z
   .object({
@@ -33,14 +34,32 @@ const attemptSchema = z
   .object({
     id: attemptIdSchema,
     generation: z.number().int(),
-    manifest: z.array(
-      z.object({ id: z.string(), a: z.string(), b: z.string(), tier: z.number() }).passthrough(),
-    ),
+    manifest: z
+      .array(
+        z.object({
+          id: z.enum(['direct', 'stun-assisted', 'turn-udp', 'turn-tls', 'turn-tcp']),
+          label: z.string(),
+          tier: z.number(),
+          alternatives: z.array(
+            z.object({
+              id: z.string(),
+              a: z.string(),
+              b: z.string(),
+              aLabel: z.string().min(1).max(300),
+              bLabel: z.string().min(1).max(300),
+              tier: z.number(),
+              status: z.literal('queued'),
+            }),
+          ),
+        }),
+      )
+      .length(5),
   })
   .strict();
 export type Credentials = z.infer<typeof credentialsSchema>;
 export type RoomStatus = z.infer<typeof statusSchema>;
 export type IssuedAttempt = z.infer<typeof attemptSchema>;
+export type IssuedDiagnosticManifest = DiagnosticCategory[];
 
 export class ApiClient {
   constructor(private readonly base = '') {}
@@ -88,11 +107,15 @@ export class ApiClient {
       credentials,
     );
   }
-  turnCredentials(credentials: Credentials, accessCode: string): Promise<IceConfig> {
+  turnCredentials(
+    credentials: Credentials,
+    accessCode: string,
+    signal?: AbortSignal,
+  ): Promise<IceConfig> {
     return this.request(
       `/api/rooms/${credentials.roomCode}/turn-credentials`,
       iceConfigSchema,
-      { method: 'POST', body: JSON.stringify({ accessCode }) },
+      { method: 'POST', body: JSON.stringify({ accessCode }), ...(signal ? { signal } : {}) },
       credentials,
     );
   }
@@ -144,25 +167,78 @@ export class ApiClient {
     credentials: Credentials,
     attempt: IssuedAttempt,
     probeId: string,
+    pairId: string,
     recipientId: string,
     body: { type: 'offer' | 'answer' | 'candidate' | 'bye'; payload: string },
+    signal?: AbortSignal,
   ) {
     probeIdSchema.parse(probeId);
-    return this.request(
-      `/api/signals/${attempt.id}?probe=${probeId}&generation=${attempt.generation}`,
+    const response = await this.request(
+      `/api/signals/${attempt.id}?probe=${probeId}&pair=${encodeURIComponent(pairId)}&generation=${attempt.generation}`,
       z.object({ accepted: z.boolean() }),
       {
         method: 'POST',
         body: JSON.stringify({ recipientId, messageId: createId('signal'), body }),
+        ...(signal ? { signal } : {}),
       },
       credentials,
     );
+    if (!response.accepted) throw new Error('signal was rejected as a duplicate');
+    return response;
   }
-  pollSignals(credentials: Credentials, attempt: IssuedAttempt, probeId: string, cursor: number) {
+  pollSignals(
+    credentials: Credentials,
+    attempt: IssuedAttempt,
+    probeId: string,
+    pairId: string,
+    cursor: number,
+    signal?: AbortSignal,
+  ) {
     return this.request(
-      `/api/signals/${attempt.id}?probe=${probeId}&generation=${attempt.generation}&cursor=${cursor}`,
+      `/api/signals/${attempt.id}?probe=${probeId}&pair=${encodeURIComponent(pairId)}&generation=${attempt.generation}&cursor=${cursor}`,
       z.object({ signals: z.array(z.object({ id: z.number(), body: z.string() })) }),
-      {},
+      signal ? { signal } : {},
+      credentials,
+    );
+  }
+  probeResult(
+    credentials: Credentials,
+    attempt: IssuedAttempt,
+    pairId: string,
+    result?: {
+      outcome: 'pass' | 'inconclusive' | 'timeout' | 'unsupported' | 'cancelled' | 'failure';
+      detail: string;
+      selected?: string;
+      elapsedMs: number;
+    },
+    signal?: AbortSignal,
+  ) {
+    const safeResult = result && {
+      ...result,
+      elapsedMs: Math.max(0, Math.min(30_000, Math.round(result.elapsedMs))),
+    };
+    return this.request(
+      `/api/rooms/${credentials.roomCode}/attempts/${attempt.id}/probes/${encodeURIComponent(pairId)}`,
+      z.object({
+        complete: z.boolean(),
+        outcome: z
+          .enum(['pass', 'inconclusive', 'timeout', 'unsupported', 'cancelled', 'failure'])
+          .optional(),
+        results: z.array(
+          z.object({
+            participant_id: participantIdSchema,
+            outcome: z.string(),
+            detail: z.string(),
+            selected: z.string().nullable(),
+            elapsed_ms: z.number(),
+          }),
+        ),
+      }),
+      safeResult
+        ? { method: 'POST', body: JSON.stringify(safeResult), ...(signal ? { signal } : {}) }
+        : signal
+          ? { signal }
+          : {},
       credentials,
     );
   }

@@ -9,6 +9,7 @@ import {
   runIdSchema,
   TURN_ACCESS_CODE_MIN_LENGTH,
   buildProfiles,
+  diagnosticCategoryIds,
 } from '../shared/domain.js';
 import { requestXirsysTurnCredentials, XirsysError } from './xirsys.js';
 import {
@@ -34,10 +35,37 @@ export interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
 }
 type Dependencies = { identity?: IdentityAdapter; repository?: (db: D1Database) => Repository };
+const pairSchema = z
+  .object({
+    id: z.string().regex(/^pair-(direct|stun-assisted|turn-(udp|tls|tcp))-\d+$/),
+    a: z.string().min(1).max(100),
+    b: z.string().min(1).max(100),
+    aLabel: z.string().min(1).max(300),
+    bLabel: z.string().min(1).max(300),
+    tier: z.number().int().min(0).max(4),
+    status: z.literal('queued'),
+  })
+  .strict();
 const manifestSchema = z
-  .array(z.object({ id: z.string().min(1).max(100) }).passthrough())
-  .min(1)
-  .max(200);
+  .array(
+    z
+      .object({
+        id: z.enum(diagnosticCategoryIds),
+        label: z.string().min(1).max(60),
+        tier: z.number().int().min(0).max(4),
+        alternatives: z.array(pairSchema).max(6),
+      })
+      .strict(),
+  )
+  .length(5);
+const probeResultSchema = z
+  .object({
+    outcome: z.enum(['pass', 'inconclusive', 'timeout', 'unsupported', 'cancelled', 'failure']),
+    detail: z.string().min(1).max(500),
+    selected: z.string().max(500).optional(),
+    elapsedMs: z.number().nonnegative().max(30_000),
+  })
+  .strict();
 const endpointsSchema = z
   .array(
     z
@@ -66,6 +94,15 @@ function stableJson(value: unknown): string {
       .join(',')}}`;
   }
   return JSON.stringify(value);
+}
+function manifestPair(attempt: { manifest_json: string }, pairId: string) {
+  const manifest = manifestSchema.safeParse(JSON.parse(attempt.manifest_json));
+  return manifest.success
+    ? manifest.data.flatMap((category) => category.alternatives).find((pair) => pair.id === pairId)
+    : undefined;
+}
+function expectedProbeId(attemptId: string, pairId: string) {
+  return `prb_${attemptId.slice(4, 24)}${pairId.replaceAll('-', '')}`;
 }
 const json = (value: unknown, status = 200) =>
   Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
@@ -306,17 +343,79 @@ export function createWorker(deps: Dependencies = {}) {
             return json({ error: 'invalid acknowledgement' }, 400);
           }
         }
+        const probeResult = url.pathname.match(
+          /^\/api\/rooms\/([^/]+)\/attempts\/([^/]+)\/probes\/([^/]+)$/,
+        );
+        if (probeResult) {
+          const access = await auth();
+          const room = roomCodeSchema.safeParse(probeResult[1]);
+          const id = attemptIdSchema.safeParse(probeResult[2]);
+          const pair = z
+            .string()
+            .regex(/^pair-(direct|stun-assisted|turn-(udp|tls|tcp))-\d+$/)
+            .safeParse(probeResult[3]);
+          if (
+            !access ||
+            !room.success ||
+            !id.success ||
+            !pair.success ||
+            access.room_code !== room.data
+          )
+            return json({ error: 'forbidden' }, 403);
+          const record = await repo.attempt(id.data);
+          if (!record || record.room_code !== room.data || !manifestPair(record, pair.data))
+            return json({ error: 'invalid probe pair' }, 400);
+          const currentRoom = await repo.roomStatus(room.data);
+          if (!currentRoom || currentRoom.generation !== record.generation)
+            return json({ error: 'attempt is no longer active' }, 409);
+          if (!(await repo.attemptStatus(record)).paired)
+            return json({ error: 'attempt not ready' }, 409);
+          if (request.method === 'POST') {
+            const input = probeResultSchema.safeParse(await body(request));
+            if (!input.success) return json({ error: 'invalid probe result' }, 400);
+            await repo.recordProbeResult(
+              record,
+              access,
+              pair.data,
+              input.data.selected
+                ? {
+                    outcome: input.data.outcome,
+                    detail: input.data.detail,
+                    elapsedMs: input.data.elapsedMs,
+                    selected: input.data.selected,
+                  }
+                : {
+                    outcome: input.data.outcome,
+                    detail: input.data.detail,
+                    elapsedMs: input.data.elapsedMs,
+                  },
+            );
+            return json(await repo.probeResultStatus(record, pair.data));
+          }
+          if (request.method === 'GET')
+            return json(await repo.probeResultStatus(record, pair.data));
+        }
         const signal = url.pathname.match(/^\/api\/signals\/([^/]+)$/);
         if (signal) {
           const access = await auth();
           const requestedAttempt = attemptIdSchema.safeParse(signal[1]);
           const probe = probeIdSchema.safeParse(url.searchParams.get('probe'));
+          const pair = z
+            .string()
+            .regex(/^pair-(direct|stun-assisted|turn-(udp|tls|tcp))-\d+$/)
+            .safeParse(url.searchParams.get('pair'));
           const generation = z.coerce
             .number()
             .int()
             .nonnegative()
             .safeParse(url.searchParams.get('generation'));
-          if (!access || !requestedAttempt.success || !probe.success || !generation.success)
+          if (
+            !access ||
+            !requestedAttempt.success ||
+            !probe.success ||
+            !pair.success ||
+            !generation.success
+          )
             return json({ error: 'forbidden' }, 403);
           const room = await repo.roomStatus(access.room_code);
           const activeAttempt = await repo.attemptForGeneration(access.room_code, generation.data);
@@ -325,6 +424,8 @@ export function createWorker(deps: Dependencies = {}) {
             room.generation !== generation.data ||
             !activeAttempt ||
             activeAttempt.id !== requestedAttempt.data ||
+            !manifestPair(activeAttempt, pair.data) ||
+            probe.data !== expectedProbeId(activeAttempt.id, pair.data) ||
             !(await repo.attemptStatus(activeAttempt)).paired
           )
             return json({ error: 'attempt not ready' }, 409);

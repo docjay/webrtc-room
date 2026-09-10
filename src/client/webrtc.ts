@@ -248,13 +248,29 @@ export async function runPairedProbe(args: {
   credentials: Credentials;
   attempt: IssuedAttempt;
   profile: Profile;
+  pairId: string;
   probeId: string;
   peerId: string;
   host: boolean;
   config: IceConfig;
   cancelled: () => boolean;
+  signal?: AbortSignal;
+  deadlineMs?: number;
 }): Promise<ProbeTerminal> {
-  const { api, credentials, attempt, profile, probeId, peerId, host, config, cancelled } = args;
+  const {
+    api,
+    credentials,
+    attempt,
+    profile,
+    pairId,
+    probeId,
+    peerId,
+    host,
+    config,
+    cancelled,
+    signal,
+    deadlineMs = PAIRED_PROBE_DEADLINE_MS,
+  } = args;
   const start = performance.now();
   if (profile.a === 'direct-tcp' || profile.b === 'direct-tcp')
     return {
@@ -279,7 +295,7 @@ export async function runPairedProbe(args: {
     pc.close();
   };
   const transmit = (type: 'offer' | 'answer' | 'candidate' | 'bye', payload: string) =>
-    api.sendSignal(credentials, attempt, probeId, peerId, { type, payload });
+    api.sendSignal(credentials, attempt, probeId, pairId, peerId, { type, payload }, signal);
   pc.onicecandidate = ({ candidate }) => {
     if (candidate && candidateMatchesProfile(profile, host ? 'a' : 'b', candidate))
       void transmit('candidate', JSON.stringify(candidate.toJSON())).catch((error: unknown) => {
@@ -289,10 +305,7 @@ export async function runPairedProbe(args: {
       });
   };
   const opened = new Promise<RTCDataChannel>((resolve, reject) => {
-    const timer = window.setTimeout(
-      () => reject(new Error('data channel deadline')),
-      PAIRED_PROBE_DEADLINE_MS,
-    );
+    const timer = window.setTimeout(() => reject(new Error('data channel deadline')), deadlineMs);
     rejectOpened = (error) => {
       window.clearTimeout(timer);
       reject(error);
@@ -317,7 +330,7 @@ export async function runPairedProbe(args: {
   const pollSignals = nonOverlapping(async () => {
     if (done || cancelled() || pollFailure) return;
     try {
-      const response = await api.pollSignals(credentials, attempt, probeId, cursor);
+      const response = await api.pollSignals(credentials, attempt, probeId, pairId, cursor, signal);
       for (const signal of response.signals) {
         cursor = signal.id;
         const parsed: unknown = JSON.parse(signal.body);
@@ -343,14 +356,20 @@ export async function runPairedProbe(args: {
           else pendingCandidates.push(candidate);
         }
       }
-    } catch (error) {
-      pollFailure = error instanceof Error ? error : new Error('signaling poll failed');
+    } catch {
+      pollFailure = new Error('signaling poll failed');
       rejectOpened?.(pollFailure);
       close();
     }
   });
   const poll = window.setInterval(() => void pollSignals(), 150);
+  const abort = () => {
+    rejectOpened?.(new DOMException('attempt cancelled', 'AbortError'));
+    close();
+  };
   try {
+    if (signal?.aborted || cancelled()) throw new DOMException('attempt cancelled', 'AbortError');
+    signal?.addEventListener('abort', abort, { once: true });
     if (host) {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -423,19 +442,20 @@ export async function runPairedProbe(args: {
       channel: active,
       close,
     };
-  } catch (error) {
+  } catch {
     return {
       outcome: cancelled()
         ? 'cancelled'
-        : performance.now() - start >= PAIRED_PROBE_DEADLINE_MS - 500
+        : performance.now() - start >= deadlineMs - 500
           ? 'timeout'
           : 'failure',
-      detail: error instanceof Error ? error.message : 'negotiation failed',
+      detail: 'probe negotiation or signaling failed',
       elapsedMs: performance.now() - start,
       close,
     };
   } finally {
     window.clearInterval(poll);
+    signal?.removeEventListener('abort', abort);
     if (!channel || channel.readyState !== 'open') close();
   }
 }

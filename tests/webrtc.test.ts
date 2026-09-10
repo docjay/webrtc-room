@@ -28,6 +28,8 @@ describe('isolated matrix ICE configuration', () => {
       id: 'profile_stun',
       a: 'stun-udp-0',
       b: 'direct-udp',
+      aLabel: 'STUN',
+      bLabel: 'Direct UDP',
       tier: 0,
       status: 'queued',
     };
@@ -60,6 +62,8 @@ describe('isolated matrix ICE configuration', () => {
         id: `profile_${endpoint}`,
         a: endpoint,
         b: 'direct-udp',
+        aLabel: endpoint,
+        bLabel: 'Direct UDP',
         tier: 1,
         status: 'queued',
       };

@@ -1,8 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 
-async function capture(page: Page, name: string) {
+async function capture(page: Page, name: string, fullPage = true) {
   const directory = process.env.UX_EVIDENCE_DIR;
-  if (directory) await page.screenshot({ path: `${directory}/${name}.png`, fullPage: true });
+  if (directory) await page.screenshot({ path: `${directory}/${name}.png`, fullPage });
 }
 
 async function openDiagnostics(page: Page) {
@@ -81,6 +81,11 @@ test('automatic checks keep explicit intent pending and the mobile drawer access
   await page.setViewportSize({ width: 1440, height: 900 });
   await openDiagnostics(page);
   await expect(page.locator('.diagnostics-drawer[role="region"]')).toBeVisible();
+  expect(
+    await page
+      .locator('.diagnostics-drawer')
+      .evaluate((element) => element.getBoundingClientRect().width),
+  ).toBeGreaterThanOrEqual(800);
   await expect(page.locator('.diagnostics-drawer')).not.toHaveAttribute('aria-modal');
   await expect(page.locator('.app-shell')).toHaveJSProperty('inert', false);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
@@ -177,6 +182,7 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   browser,
 }) => {
   const coordinationRequests = { capabilities: 0, status: 0 };
+  const attemptedProbeUrls = new Set<string>();
   const hostContext = await browser.newContext({
     permissions: ['clipboard-read', 'clipboard-write'],
   });
@@ -185,6 +191,7 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   });
   const countCoordinationRequest = (request: { method(): string; url(): string }) => {
     const url = new URL(request.url());
+    if (/\/probes\/[^/]+$/.test(url.pathname)) attemptedProbeUrls.add(url.pathname);
     if (request.method() === 'POST' && /\/api\/rooms\/[^/]+\/capabilities$/.test(url.pathname))
       coordinationRequests.capabilities++;
     if (request.method() === 'GET' && /\/api\/rooms\/[^/]+$/.test(url.pathname))
@@ -260,6 +267,33 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   expect(hostAttempt).toBe(guestAttempt);
 
   await openDiagnostics(host);
+  await host.getByText('Connection checks', { exact: true }).click();
+  const completedProbeUrls = [...attemptedProbeUrls].sort();
+  await expect(host.locator('.capability-card')).toHaveCount(5);
+  await expect(host.getByRole('table', { name: 'Direct pair details', exact: true })).toHaveCount(
+    0,
+  );
+  await host.getByRole('button', { name: 'Pair details', exact: true }).click();
+  const directPairs = host.getByRole('table', { name: 'Direct pair details', exact: true });
+  await expect(directPairs).toBeVisible();
+  await expect(directPairs).toContainText('Direct UDP');
+  await expect(directPairs).toContainText('pass');
+  await expect(directPairs).toContainText('host/udp');
+  const statusHeading = directPairs.getByRole('columnheader', { name: 'Status', exact: true });
+  expect((await statusHeading.boundingBox())!.width).toBeGreaterThanOrEqual(85);
+  await directPairs.scrollIntoViewIfNeeded();
+  await capture(host, 'desktop-capability-pair-details', false);
+  await host.setViewportSize({ width: 390, height: 844 });
+  await expect(directPairs).toBeVisible();
+  expect(await host.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await directPairs.scrollIntoViewIfNeeded();
+  await capture(host, 'mobile-capability-pair-details', false);
+  await host.setViewportSize({ width: 1440, height: 900 });
+  await host.getByRole('button', { name: 'Summary', exact: true }).click();
+  await expect(directPairs).toHaveCount(0);
+  expect([...attemptedProbeUrls].sort()).toEqual(completedProbeUrls);
   await host
     .locator('.diagnostics-drawer')
     .getByText('Connection speed check', { exact: true })
@@ -290,19 +324,29 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   const copied = JSON.parse(await host.evaluate(() => navigator.clipboard.readText())) as {
     runId: string;
     attemptId: string;
-    matrix: Array<{ id: string; a: string; b: string; outcome: string; selected?: string }>;
+    matrix: Array<{
+      id: string;
+      outcome: string;
+      pairs: Array<{
+        a: string;
+        b: string;
+        outcome: string;
+        attemptStatus: string;
+        selected?: string;
+      }>;
+    }>;
     outcome: string;
   };
   expect(copied.runId).toMatch(/^run_/);
   expect(copied.attemptId).toBe(hostAttempt);
-  expect(copied.matrix).toHaveLength(9);
-  expect(copied.matrix.some((row) => row.a.includes('STUN stun.cloudflare.com:3478'))).toBe(true);
-  expect(copied.matrix.some((row) => row.b.includes('STUN stun.cloudflare.com:3478'))).toBe(true);
-  const passedStunRows = copied.matrix.filter(
-    (row) => row.id.includes('stun-') && row.outcome === 'pass',
-  );
+  expect(copied.matrix).toHaveLength(5);
+  const stun = copied.matrix.find((row) => row.id === 'stun-assisted')!;
+  expect(stun.pairs.some((pair) => pair.a.includes('STUN stun.cloudflare.com:3478'))).toBe(true);
+  expect(stun.pairs.some((pair) => pair.b.includes('STUN stun.cloudflare.com:3478'))).toBe(true);
+  expect(copied.matrix.filter((row) => row.outcome === 'not-configured')).toHaveLength(3);
+  const passedStunRows = stun.pairs.filter((pair) => pair.outcome === 'pass');
   expect(passedStunRows.length).toBeGreaterThan(0);
-  expect(passedStunRows.every((row) => /(?:srflx|prflx)/.test(row.selected ?? ''))).toBe(true);
+  expect(passedStunRows.every((pair) => /(?:srflx|prflx)/.test(pair.selected ?? ''))).toBe(true);
   expect(copied.outcome).toBe('Connected');
   await host.getByRole('button', { name: 'Compact report' }).click();
   const compact = host.getByRole('heading', { name: 'Connection summary' });

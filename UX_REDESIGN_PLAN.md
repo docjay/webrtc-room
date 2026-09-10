@@ -1,5 +1,10 @@
 # UX redesign implementation plan
 
+Scope update (2026-09-09): the user's five-category capability diagnostic
+supersedes the exhaustive-matrix requirements below. See SPEC.md. Diagnostics
+now uses a wider desktop drawer and Summary/Pair details views; the detail view
+shows actual attempts and untried fallbacks without running extra tests.
+
 Status: approved design direction, implementation not started.
 Prepared 2026-09-07 against source baseline `4060f76`.
 This is a local implementation plan, not deployment authorization.

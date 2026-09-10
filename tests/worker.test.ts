@@ -5,7 +5,7 @@ import { sqliteD1 } from './sqlite-d1.js';
 
 const schema = (
   await Promise.all(
-    ['0001_initial.sql', '0002_integrity_and_quotas.sql'].map((name) =>
+    ['0001_initial.sql', '0002_integrity_and_quotas.sql', '0003_probe_results.sql'].map((name) =>
       readFile(new URL(`../src/server/migrations/${name}`, import.meta.url), 'utf8'),
     ),
   )
@@ -117,7 +117,8 @@ describe('worker room integration', () => {
       generation: number;
       manifest: Array<Record<string, unknown>>;
     };
-    const signalUrl = `/api/signals/${attempt.id}?probe=prb_abcdefghijkl&generation=${attempt.generation}`;
+    const probeId = `prb_${attempt.id.slice(4, 24)}pairdirect0`;
+    const signalUrl = `/api/signals/${attempt.id}?probe=${probeId}&pair=pair-direct-0&generation=${attempt.generation}`;
     expect(
       (
         await request(signalUrl, {
@@ -145,6 +146,111 @@ describe('worker room integration', () => {
     });
     expect(retried.status).toBe(201);
     expect((await request(signalUrl, { method: 'GET', headers: auth(host) })).status).toBe(409);
+  });
+
+  it('requires an active acknowledged generation and keeps probe results immutable', async () => {
+    const { request } = await fixture();
+    const { host, guest, auth } = await credentials(request);
+    for (const peer of [host, guest]) {
+      await request(`/api/rooms/${host.roomCode}/capabilities`, {
+        method: 'POST',
+        headers: auth(peer),
+        body: JSON.stringify({ endpoints: [] }),
+      });
+    }
+    const created = await request(`/api/rooms/${host.roomCode}/attempts`, {
+      method: 'POST',
+      headers: auth(host),
+      body: '{}',
+    });
+    const attempt = (await created.json()) as {
+      id: string;
+      manifest: Array<Record<string, unknown>>;
+    };
+    const path = `/api/rooms/${host.roomCode}/attempts/${attempt.id}/probes/pair-direct-0`;
+    expect((await request(path)).status).toBe(403);
+    expect(
+      (
+        await request(path, {
+          method: 'POST',
+          headers: auth(host),
+          body: JSON.stringify({ outcome: 'pass', detail: 'ok', elapsedMs: 1 }),
+        })
+      ).status,
+    ).toBe(409);
+    for (const peer of [host, guest]) {
+      await request(`/api/rooms/${host.roomCode}/attempts/${attempt.id}/ack`, {
+        method: 'POST',
+        headers: auth(peer),
+        body: JSON.stringify({ manifest: attempt.manifest }),
+      });
+    }
+    expect(
+      (
+        await request(path, {
+          method: 'POST',
+          headers: auth(host),
+          body: JSON.stringify({ outcome: 'pass', detail: 'ok', elapsedMs: 30_001 }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      await (
+        await request(path, {
+          method: 'POST',
+          headers: auth(host),
+          body: JSON.stringify({
+            outcome: 'pass',
+            detail: 'host pass',
+            selected: 'host/udp → guest/udp',
+            elapsedMs: 1,
+          }),
+        })
+      ).json(),
+    ).toMatchObject({ complete: false });
+    await request(path, {
+      method: 'POST',
+      headers: auth(host),
+      body: JSON.stringify({ outcome: 'failure', detail: 'late rewrite', elapsedMs: 2 }),
+    });
+    const shared = (await (
+      await request(path, {
+        method: 'POST',
+        headers: auth(guest),
+        body: JSON.stringify({
+          outcome: 'timeout',
+          detail: 'guest timeout',
+          selected: 'guest/udp → host/udp',
+          elapsedMs: 30_000,
+        }),
+      })
+    ).json()) as unknown as {
+      complete: boolean;
+      outcome: string;
+      results: Array<{ participant_id: string; outcome: string }>;
+    };
+    expect(shared).toMatchObject({ complete: true, outcome: 'timeout' });
+    expect(shared.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          participant_id: host.participantId,
+          outcome: 'pass',
+          selected: 'host/udp → guest/udp',
+        }),
+        expect.objectContaining({
+          participant_id: guest.participantId,
+          outcome: 'timeout',
+          selected: 'guest/udp → host/udp',
+        }),
+      ]),
+    );
+    const retry = await request(`/api/rooms/${host.roomCode}/retry`, {
+      method: 'POST',
+      headers: auth(host),
+      body: JSON.stringify({ previousAttemptId: attempt.id }),
+    });
+    expect(retry.status).toBe(201);
+    expect((await request(path, { headers: auth(host) })).status).toBe(409);
   });
 
   it('distinguishes invalid capability payloads from missing room authorization', async () => {

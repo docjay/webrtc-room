@@ -1,6 +1,55 @@
 # Copilot build handoff
 
-## Current handoff - Codex Sites deployment candidate, 2026-09-08
+## Capability-check redesign - 2026-09-09
+
+Branch: `work/ux-redesign-plan`.
+Worktree: `/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`.
+
+This milestone replaces the earlier exhaustive endpoint matrix. The canonical
+manifest has five categories: Direct, STUN-assisted, TURN UDP, TURN TLS, TURN
+TCP. Endpoint/port variants are ordered fallbacks, not Cartesian combinations.
+The Summary view presents category outcomes; Pair details shows requested A/B
+endpoints, status/timing, selected-pair evidence and untried alternatives.
+Desktop diagnostics grows to `min(56rem, 60vw)`; mobile stays full-width.
+
+**Deployment requires additive migration `0003_probe_results.sql`** before the
+new Worker serves requests. It stores bounded paired terminal evidence used to
+synchronize fallback decisions. Preserve migrations 0001/0002 and existing
+data. Refresh both clients and use a new room after deploying the new manifest
+contract; do not mix old/new clients within an attempt. No exhaustive mode is
+added or implied by the Pair details view.
+
+Final local evidence: `npm run check` passed 60 unit/integration tests,
+format/type/lint checks, and the production client/Worker build.
+`npm run test:browser` passed seven Chromium cases in 31.4 seconds (one opt-in
+WebKit case skipped), exercising real local two-page WebRTC/chat, five category
+outcomes, pair reports, configuration retry, chat before category completion,
+deferred speed checks, and recovery after a lost result-POST response.
+Migration 0003 is staged byte-identically; historical migrations are unchanged.
+Desktop/mobile images are in the session artifact folder
+`files/capability-evidence/`; they contain no TURN credentials. Drawer width is
+asserted at 1440px, mobile overflow at 390px; detail-view switching launches no
+additional pair probes.
+
+Terra medium implemented and corrected the scheduler, manifest, immutable
+paired-result protocol, migration and regressions. A bounded Sol-medium pass
+corrected premature throughput while categories run, cooperative deadline and
+cancellation handling, and immutable-result recovery after HTTP response loss.
+This escalation followed concrete integration findings after two Terra passes,
+not a duplicate general review. The user-selected root remains Astra for
+UI/documentation/integration; no separate Astra review was launched.
+Actual external TURN UDP/TCP/TLS traversal, physical two-network behavior and
+hosted auth/D1 remain environment-dependent, not proven by local smoke or
+synthetic delay tests.
+
+Endpoint failures can advance to the next same-category alternative after
+shared terminal evidence. If coordination cannot obtain shared evidence within
+its budget, the category stops rather than speculatively starting another pair.
+This is not an exhaustive reachability guarantee. Normal speed negotiation
+still requires the other peer's ready/consent handshake and may skip if that
+peer is delayed or unavailable.
+
+## Previous handoff - Codex Sites deployment candidate, 2026-09-08
 
 - **Xirsys response-shape fix pending deployment:** live provider
   authentication succeeded and returned a successful `v.iceServers` as one
@@ -170,7 +219,7 @@ test:browser` passed 4 Chromium tests in 42.2 seconds using actual local
    `XIRSYS_CHANNEL`, and `DIAGNOSTIC_ACCESS_CODE` as hosted secrets/settings.
 5. Verify signed-out and non-owner `/api/admin/*` requests return 403, then
    verify authenticated owner list, detail, and export access.
-6. Deploy with Sites tools, apply/verify both D1 migrations, and check hosted
+6. Deploy with Sites tools, apply/verify all three D1 migrations, and check hosted
    health, static SPA fallback, room create/join, persistence, two-device
    WebRTC/chat, reports, and owner authorization.
 7. Report TURN and external-network paths as untested unless credentials and an

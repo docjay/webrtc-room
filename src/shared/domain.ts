@@ -159,8 +159,24 @@ export type Profile = {
   id: string;
   a: string;
   b: string;
+  aLabel: string;
+  bLabel: string;
   tier: number;
   status: 'queued' | 'running' | 'terminal';
+};
+export const diagnosticCategoryIds = [
+  'direct',
+  'stun-assisted',
+  'turn-udp',
+  'turn-tls',
+  'turn-tcp',
+] as const;
+export type DiagnosticCategoryId = (typeof diagnosticCategoryIds)[number];
+export type DiagnosticCategory = {
+  id: DiagnosticCategoryId;
+  label: string;
+  tier: number;
+  alternatives: Profile[];
 };
 export function profileTier(a: string, b: string): number {
   const hops = [a, b];
@@ -174,25 +190,101 @@ export function profileTier(a: string, b: string): number {
 export function profileUsesTurn(profile: Pick<Profile, 'a' | 'b'>): boolean {
   return profile.a.startsWith('turn-') || profile.b.startsWith('turn-');
 }
-export function buildProfiles(a: SanitizedIceServer[], b: SanitizedIceServer[]): Profile[] {
-  const endpoints = (servers: SanitizedIceServer[]) => [
-    'direct-udp',
-    'direct-tcp',
-    ...servers.map((endpoint) => endpoint.id),
-  ];
-  const entries = [
-    ...new Set(endpoints(a).flatMap((left) => endpoints(b).map((right) => `${left}|${right}`))),
-  ];
-  return entries.map((key) => {
-    const [left, right] = key.split('|') as [string, string];
+function alternatives(
+  category: DiagnosticCategoryId,
+  a: SanitizedIceServer[],
+  b: SanitizedIceServer[],
+  transport?: 'udp' | 'tcp' | 'tls',
+): Profile[] {
+  const endpoints = (items: SanitizedIceServer[]) =>
+    items.filter((endpoint) =>
+      transport
+        ? endpoint.kind === 'turn' && endpoint.transports[0] === transport
+        : endpoint.kind === 'stun',
+    );
+  const left = endpoints(a);
+  const right = endpoints(b);
+  const fallback = (items: SanitizedIceServer[]) =>
+    items.find((endpoint) => endpoint.kind === 'stun');
+  const label = (id: string, endpoint: SanitizedIceServer | undefined) =>
+    id === 'direct-udp'
+      ? 'Direct UDP'
+      : id === 'direct-tcp'
+        ? 'Direct TCP'
+        : endpoint
+          ? `${endpoint.kind.toUpperCase()} ${iceServerAddress(endpoint.urls[0]!)}`
+          : id;
+  if (!left.length && !right.length) return [];
+  // Pair equal-position endpoints only. This is deliberately bounded and
+  // deterministic: variants are fallbacks, not a Cartesian endpoint matrix.
+  const count = Math.max(left.length, right.length);
+  return Array.from({ length: count }, (_, index) => {
+    const aEndpoint = left[index] ?? left[0];
+    const bEndpoint = right[index] ?? right[0];
+    const aFallback = fallback(a);
+    const bFallback = fallback(b);
+    const aId = aEndpoint?.id ?? (transport ? (aFallback?.id ?? 'direct-udp') : 'direct-udp');
+    const bId = bEndpoint?.id ?? (transport ? (bFallback?.id ?? 'direct-udp') : 'direct-udp');
     return {
-      id: `profile_${key}`,
-      a: left,
-      b: right,
-      tier: profileTier(left, right),
+      id: `pair-${category}-${index}`,
+      a: aId,
+      b: bId,
+      aLabel: label(aId, aEndpoint ?? aFallback),
+      bLabel: label(bId, bEndpoint ?? bFallback),
+      tier: profileTier(aId, bId),
       status: 'queued',
     };
   });
+}
+
+/** Build the fixed five-row capability manifest. Endpoint variants are ordered
+ * alternatives within a row and are never expanded into cross-products. */
+export function buildProfiles(
+  a: SanitizedIceServer[],
+  b: SanitizedIceServer[],
+): DiagnosticCategory[] {
+  return [
+    {
+      id: 'direct',
+      label: 'Direct',
+      tier: 0,
+      alternatives: [
+        {
+          id: 'pair-direct-0',
+          a: 'direct-udp',
+          b: 'direct-udp',
+          aLabel: 'Direct UDP',
+          bLabel: 'Direct UDP',
+          tier: 0,
+          status: 'queued',
+        },
+      ],
+    },
+    {
+      id: 'stun-assisted',
+      label: 'STUN-assisted',
+      tier: 0,
+      alternatives: alternatives('stun-assisted', a, b),
+    },
+    {
+      id: 'turn-udp',
+      label: 'TURN UDP',
+      tier: 1,
+      alternatives: alternatives('turn-udp', a, b, 'udp'),
+    },
+    {
+      id: 'turn-tls',
+      label: 'TURN TLS',
+      tier: 2,
+      alternatives: alternatives('turn-tls', a, b, 'tls'),
+    },
+    {
+      id: 'turn-tcp',
+      label: 'TURN TCP',
+      tier: 3,
+      alternatives: alternatives('turn-tcp', a, b, 'tcp'),
+    },
+  ];
 }
 export function nextProfiles(
   profiles: Profile[],

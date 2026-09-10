@@ -4,7 +4,7 @@ import { Repository } from '../src/server/repository.js';
 import { sqliteD1 } from './sqlite-d1.js';
 const schema = (
   await Promise.all(
-    ['0001_initial.sql', '0002_integrity_and_quotas.sql'].map((name) =>
+    ['0001_initial.sql', '0002_integrity_and_quotas.sql', '0003_probe_results.sql'].map((name) =>
       readFile(new URL(`../src/server/migrations/${name}`, import.meta.url), 'utf8'),
     ),
   )
@@ -155,5 +155,43 @@ describe('D1 repository (SQLite-compatible sql.js test adapter)', () => {
     expect(new Set(retries.map((value) => value.id)).size).toBe(1);
     expect(retries[0]!.generation).toBe(2);
     expect((await repo.attempt(retries[0]!.id))?.previous_id).toBe(issued[0]!.id);
+  });
+  it('waits for both authenticated terminal results before choosing a shared outcome', async () => {
+    const repo = await fixture();
+    await repo.createRoom('ABC234', 'pt_hostaaaaaaaa', 'host-hash');
+    await repo.claimGuest('ABC234', 'pt_guestaabbcc', 'guest-hash');
+    const issued = await repo.issueAttempt('ABC234', '[]', null);
+    const attempt = await repo.attempt(issued.id);
+    const host = await repo.participant('pt_hostaaaaaaaa', 'host-hash');
+    const guest = await repo.participant('pt_guestaabbcc', 'guest-hash');
+    await repo.recordProbeResult(attempt!, host!, 'pair-direct-0', {
+      outcome: 'pass',
+      detail: 'host verified',
+      elapsedMs: 10,
+    });
+    expect(await repo.probeResultStatus(attempt!, 'pair-direct-0')).toMatchObject({
+      complete: false,
+    });
+    await repo.recordProbeResult(attempt!, guest!, 'pair-direct-0', {
+      outcome: 'timeout',
+      detail: 'guest timed out',
+      elapsedMs: 30_000,
+    });
+    expect(await repo.probeResultStatus(attempt!, 'pair-direct-0')).toMatchObject({
+      complete: true,
+      outcome: 'timeout',
+    });
+    await repo.recordProbeResult(attempt!, host!, 'pair-direct-0', {
+      outcome: 'pass',
+      detail: 'late contradictory update',
+      elapsedMs: 99_999,
+    });
+    const stable = await repo.probeResultStatus(attempt!, 'pair-direct-0');
+    expect(stable).toMatchObject({ complete: true, outcome: 'timeout' });
+    expect(stable.results.find((result) => result.participant_id === host!.id)).toMatchObject({
+      outcome: 'pass',
+      detail: 'host verified',
+      elapsed_ms: 10,
+    });
   });
 });

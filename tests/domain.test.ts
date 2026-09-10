@@ -55,19 +55,20 @@ describe('domain rules', () => {
         iceServers: [{ urls: 'turns:a.example:443?transport=tcp', username: 'u', credential: 'c' }],
       }),
     );
-    const profiles = buildProfiles(caps, caps);
-    expect(profiles.length).toBeGreaterThan(1);
+    const categories = buildProfiles(caps, caps);
+    expect(categories).toHaveLength(5);
+    const profiles = categories.flatMap((category) => category.alternatives);
     const scheduled = nextProfiles(
       profiles,
       3,
       10_000,
       new Map(profiles.map((p) => [p.id, 9_000])),
     );
-    expect(scheduled).toHaveLength(3);
+    expect(scheduled).toHaveLength(2);
     expect(scheduled[0]?.queuedMs).toBe(1_000);
     expect(scheduled[0]?.deadlineAt).toBe(40_000);
   });
-  it('keeps every sanitized TURN URL as a distinct endpoint pair', () => {
+  it('keeps TURN variants as ordered alternatives without Cartesian growth', () => {
     const a = sanitizeIceConfig(
       iceConfigSchema.parse({
         iceServers: [
@@ -90,16 +91,76 @@ describe('domain rules', () => {
         ],
       }),
     );
-    const pairs = buildProfiles(a, b).filter(
-      (profile) => profile.a.startsWith('turn-') && profile.b.startsWith('turn-'),
-    );
-    expect(pairs).toHaveLength(4);
-    expect(new Set(pairs.map((profile) => profile.id)).size).toBe(4);
+    const pairs = buildProfiles(a, b).find((category) => category.id === 'turn-udp')!.alternatives;
+    expect(pairs).toHaveLength(2);
+    expect(new Set(pairs.map((profile) => profile.id)).size).toBe(2);
     expect(pairs.every((profile) => profile.tier === 1)).toBe(true);
     expect(a.map((endpoint) => endpoint.urls)).toEqual([
       ['turn:a.example:3478?transport=udp'],
       ['turn:a-alt.example:3478?transport=udp'],
     ]);
+  });
+  it('always emits five rows and models absent endpoints as unconfigured alternatives', () => {
+    const categories = buildProfiles([], []);
+    expect(categories.map((category) => category.id)).toEqual([
+      'direct',
+      'stun-assisted',
+      'turn-udp',
+      'turn-tls',
+      'turn-tcp',
+    ]);
+    expect(categories[0]!.alternatives).toHaveLength(1);
+    expect(categories.slice(1).every((category) => !category.alternatives.length)).toBe(true);
+  });
+  it('bounds six-by-six TURN configuration to five category rows', () => {
+    const config = sanitizeIceConfig(
+      iceConfigSchema.parse({
+        iceServers: [
+          {
+            urls: [
+              'turn:one.example:3478?transport=udp',
+              'turn:two.example:3478?transport=udp',
+              'turn:three.example:3478?transport=tcp',
+            ],
+            username: 'user',
+            credential: 'credential',
+          },
+          {
+            urls: [
+              'turn:four.example:3478?transport=tcp',
+              'turns:five.example:443?transport=tcp',
+              'turns:six.example:443?transport=tcp',
+            ],
+            username: 'user',
+            credential: 'credential',
+          },
+        ],
+      }),
+    );
+    const rows = buildProfiles(config, config);
+    expect(rows).toHaveLength(5);
+    expect(rows.flatMap((row) => row.alternatives)).toHaveLength(7);
+    expect(rows.find((row) => row.id === 'turn-udp')!.alternatives).toHaveLength(2);
+  });
+  it('uses STUN or direct as the other side of a one-sided relay alternative', () => {
+    const relay = sanitizeIceConfig(
+      iceConfigSchema.parse({
+        iceServers: [
+          { urls: 'turn:relay.example:3478?transport=udp', username: 'u', credential: 'c' },
+        ],
+      }),
+    );
+    const stun = sanitizeIceConfig(
+      iceConfigSchema.parse({ iceServers: [{ urls: 'stun:stun.example:3478' }] }),
+    );
+    expect(
+      buildProfiles(relay, stun).find((row) => row.id === 'turn-udp')!.alternatives[0],
+    ).toMatchObject({
+      a: 'turn-udp-0',
+      b: 'stun-udp-0',
+      aLabel: 'TURN relay.example:3478 (UDP)',
+      bLabel: 'STUN stun.example:3478',
+    });
   });
   it('isolates mixed URLs into UDP, TCP, and TLS endpoint identities', () => {
     const endpoints = sanitizeIceConfig(
@@ -157,11 +218,21 @@ describe('domain rules', () => {
     expect(profileUsesTurn({ a: 'direct-udp', b: 'turn-udp-0' })).toBe(true);
     expect(profileUsesTurn({ a: 'stun-udp-0', b: 'direct-udp' })).toBe(false);
     const rows: Array<Profile & { outcome?: string }> = [
-      { id: 'profile-z', a: 'direct-udp', b: 'direct-udp', tier: 0, status: 'running' as const },
+      {
+        id: 'profile-z',
+        a: 'direct-udp',
+        b: 'direct-udp',
+        aLabel: 'Direct UDP',
+        bLabel: 'Direct UDP',
+        tier: 0,
+        status: 'running' as const,
+      },
       {
         id: 'profile-b',
         a: 'turn-udp',
         b: 'turn-udp',
+        aLabel: 'TURN',
+        bLabel: 'TURN',
         tier: 1,
         status: 'terminal' as const,
         outcome: 'pass',
@@ -170,6 +241,8 @@ describe('domain rules', () => {
         id: 'profile-a',
         a: 'turn-udp',
         b: 'turn-udp',
+        aLabel: 'TURN',
+        bLabel: 'TURN',
         tier: 1,
         status: 'terminal' as const,
         outcome: 'pass',

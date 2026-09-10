@@ -26,6 +26,9 @@ available. Open the repository at the branch and commit recorded at the top of
 > audience choice. Apply the existing ordered D1 migrations, deploy through
 > Sites, then verify hosted health, static routing, room create/join,
 > persistence, two-device WebRTC/chat, reporting, and real owner authorization.
+> Include `0003_probe_results.sql` for the five-category capability checks.
+> Refresh both clients and create a new room after deployment; preserve
+> existing data and do not mix old/new manifest contracts within a room.
 > Do not claim TURN UDP/TCP/TLS or external-network coverage without supplied
 > credentials and suitable devices/networks. Return the live HTTPS URL and any
 > remaining external verification gaps.

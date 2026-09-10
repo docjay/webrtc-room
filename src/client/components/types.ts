@@ -82,6 +82,14 @@ export interface DiagnosticMatrixRow {
   queued: string;
   active: string;
   evidence: string;
+  details?: readonly {
+    id: string;
+    endpoints: string;
+    status: string;
+    evidence: string;
+    queued: string;
+    active: string;
+  }[];
 }
 
 export interface DiagnosticEvent {
