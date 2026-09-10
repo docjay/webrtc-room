@@ -1,5 +1,59 @@
 import { expect, test, type BrowserContext } from '@playwright/test';
 
+test('recovers a dropped early probe ping without falling back from Direct', async ({
+  browser,
+}) => {
+  const hostContext = await browser.newContext();
+  const guestContext = await browser.newContext();
+  await useShortPerformanceProbe(hostContext, guestContext);
+  await guestContext.addInitScript(() => {
+    let dropped = false;
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- Reflect.apply preserves the native channel receiver.
+    RTCDataChannel.prototype.send = new Proxy(RTCDataChannel.prototype.send, {
+      apply(send, channel: RTCDataChannel, args: unknown[]) {
+        if (!dropped && typeof args[0] === 'string' && args[0].startsWith('probe-ping:')) {
+          dropped = true;
+          Object.defineProperty(window, '__droppedEarlyProbePing', { value: true });
+          return;
+        }
+        Reflect.apply(send, channel, args);
+      },
+    });
+  });
+  const host = await hostContext.newPage();
+  const guest = await guestContext.newPage();
+  try {
+    await host.goto('/');
+    await host.getByRole('button', { name: 'Create a room' }).click();
+    await expect(host.getByRole('heading', { name: 'Waiting for the other device' })).toBeVisible({
+      timeout: 25_000,
+    });
+    const code = ((await host.locator('.invitation-card strong').textContent()) ?? '').trim();
+    await guest.goto(`/?room=${code}`);
+    await guest.getByRole('button', { name: 'Join room' }).click();
+    for (const page of [host, guest]) {
+      await expect(page.getByRole('heading', { name: 'Connected', exact: true })).toBeVisible({
+        timeout: 30_000,
+      });
+      await page.getByRole('button', { name: /diagnostics/i }).click();
+      await page.getByText('Connection checks', { exact: true }).click();
+      await expect(
+        page.locator('.capability-card').filter({ has: page.getByText('Direct', { exact: true }) }),
+      ).toContainText('pass');
+      await page.getByRole('button', { name: 'Close diagnostics' }).click();
+    }
+    expect(
+      await guest.evaluate(() => Reflect.get(window, '__droppedEarlyProbePing') === true),
+    ).toBe(true);
+    await host.getByLabel('Write a message').fill('chat after ping retry');
+    await host.getByRole('button', { name: 'Send' }).click();
+    await expect(guest.getByText('chat after ping retry')).toBeVisible();
+  } finally {
+    await hostContext.close();
+    await guestContext.close();
+  }
+});
+
 for (const peerVerdict of ['inconclusive', 'withheld'] as const) {
   test(`requires peer confirmation when its verdict is ${peerVerdict}`, async ({ browser }) => {
     const hostContext = await browser.newContext();

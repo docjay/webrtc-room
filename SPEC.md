@@ -33,6 +33,7 @@ Build a two-device WebRTC data-channel demo with diagnostics before, during, and
 - The default connection policy and automatic matrix are defined below. Individual TURN probes isolate each URL. Tests requiring a relay on both devices require both devices to configure TURN; one-sided relay tests are distinct and use only the required side's credentials.
 - Display direct UDP, observed ICE-TCP, TURN UDP/TCP/TLS evidence separately. Candidate `protocol` and TURN `relayProtocol` represent different hops. Preserve raw supported fields; label unavailable fields rather than guessing.
 - Each device verifies its requested TURN transport using its own selected local relay candidate's `relayProtocol`: `udp`, `tcp`, or `tls`. Remote relay transport stats may be unavailable; verify that transport through the other device's local verdict, not a required remote `relayProtocol` field. Both devices must still confirm the requested candidate types, application ping, and their local transport evidence before a paired pass. Missing or mismatched local evidence remains inconclusive; plain `tcp` does not prove TLS.
+- Managed credential refresh may return a different relay host. Preserve the canonical requested alternative slot's transport and port, but use credentials only with their returned endpoint. Prefer an exact returned URL; permit only an unambiguous compatible host replacement. Log requested versus actual endpoints and retain each device's actual endpoint in shared result evidence. Incompatible refresh results must fail explicitly, not borrow credentials for an unreturned URL or silently change transport/port. Distinguish credential HTTP/timeout failures, endpoint alignment errors, and RTC setup errors without raw provider payloads or secrets.
 
 ## Required diagnostics and bounded capability checks
 
@@ -57,6 +58,14 @@ Build the five-category manifest from BOTH devices' sanitized endpoint capabilit
 Each category reports whether it worked. If Direct also passed, describe a later success as an alternative path verified, not increased connectivity. Only describe added connectivity in this run when the direct baseline explicitly failed; unsupported, inconclusive, and timed-out baselines do not establish a general connectivity improvement.
 
 Both peers must acknowledge the same server-issued category manifest before any paired probe starts. Each attempted pair uses an isolated peer connection on each device and a canonical attempt/pair/probe identity. Terminal results are shared through authorized, bounded Worker/D1 coordination so asymmetric outcomes cannot make peers independently retain a pass versus try a fallback. Late/duplicate messages cannot overwrite committed terminal evidence or resurrect cancelled work. Per-probe HTTP polling stays serialized. Signaling failures must surface as signaling failures, not credential failures or generic data-channel timeouts. Allocation, ICE checks, channel opening, and bidirectional application pings remain separate evidence; only both devices' verified selected-path results establish a paired pass.
+
+Probe message handlers must be installed before channel readiness can trigger
+traffic, including an already-open incoming channel. Open notifications are
+idempotent. The bounded handshake must tolerate an early challenge arriving
+before the peer is ready without accepting unrelated or stale pong/verdict
+messages. Require each side's own verified round trip plus selected-path and
+peer confirmation, not merely ICE connected. Cancellation, channel closure and
+the enclosing probe deadline terminate waits and remove listeners/timers.
 
 Room coordination publishes unchanged capabilities once per participant and
 configuration generation rather than on every status check. While waiting for

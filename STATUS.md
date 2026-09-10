@@ -1,5 +1,38 @@
 # Status - room-first UX redesign implemented
 
+## Current milestone - asymmetric probes and relay refresh, 2026-09-10
+
+- Both supplied Codex-tab reports show a succeeded, nominated host/UDP pair
+  with open data channels. A received its pong, but B's separate challenge
+  timed out; this run is not evidence of failed direct ICE or mDNS resolution.
+  TURN separately failed during A's managed refresh/setup while B waited for
+  negotiation. The old generic error does not identify the exact refresh cause.
+- Implemented nonce-matched challenge retries within the existing three-second
+  handshake bound, idempotent/already-open channel handling, buffered peer
+  verdicts, and abort/close/send-error cleanup. Both peers must still prove
+  their own round trip and selected path; no relaxed pass criteria.
+- Managed refresh now reserves exact returned URLs, then permits only a unique
+  same-transport/same-port replacement. Returned credentials stay with their
+  returned endpoint. Immediate safe HTTP/alignment/setup errors and requested
+  versus actual endpoint evidence replace the generic refresh failure.
+- Sol medium was assigned the handshake investigation after earlier listener
+  fixes proved insufficient; Terra medium was assigned refresh implementation.
+  Both were interrupted by the connection outage and returned no implementation.
+  The user-selected Astra root completed the direct fallback, integration and
+  evidence after resumption rather than repeatedly relaunching empty agents.
+- Final `npm run check` passed 99 tests, formatting, typecheck, lint and builds.
+  The three focused Chromium cases passed: real local RTC with an injected
+  dropped first challenge, mocked provider hostname rotation, and safe HTTP 502
+  reporting. The broader run passed 11 cases, skipped optional WebKit and failed
+  the existing public-STUN success assertion. An isolated unchanged `bec7710`
+  checkout also showed bilateral STUN negotiation timeouts on this connection;
+  its smoke stopped earlier waiting for speed completion. Assertions were not
+  weakened. Current public-STUN connectivity remains unverified, and neither
+  mocked provider case proves live TURN traversal or the original refresh cause.
+- Next: Codex deploys matching client/Worker artifacts; refresh both clients
+  and start a new room because ping/pong framing changed. No new migration,
+  hosted configuration, credential use or deployment was performed locally.
+
 ## Current milestone - candidate event evidence, 2026-09-10
 
 - The user approved actual candidate addresses in the event log, exports, and

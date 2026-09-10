@@ -1,5 +1,6 @@
 import type { ApiClient, Credentials, IssuedAttempt } from './api.js';
 import { PairedRtcDiagnostics, type DiagnosticCallback } from './rtc-diagnostics.js';
+import { ProbeHandshake } from './probe-handshake.js';
 import { normalizeRtcIceCandidate, type CandidateEvidence } from '../shared/normalization.js';
 import { sanitizeIceConfig, type IceConfig, type Profile } from '../shared/domain.js';
 
@@ -309,9 +310,7 @@ export async function runPairedProbe(args: {
     remoteDescriptionSet = false,
     pollFailure: Error | undefined;
   let rejectOpened: ((error: Error) => void) | undefined;
-  let receivePong: (() => void) | undefined;
-  let receivePeerVerdict: ((value: 'pass' | 'inconclusive') => void) | undefined;
-  let bufferedPeerVerdict: 'pass' | 'inconclusive' | undefined;
+  let handshake: ProbeHandshake | undefined;
   let openTimer: number | undefined;
   let terminalRecorded = false;
   const pendingCandidates: RTCIceCandidateInit[] = [];
@@ -324,6 +323,7 @@ export async function runPairedProbe(args: {
   };
   const close = () => {
     done = true;
+    handshake?.dispose();
     if (openTimer !== undefined) window.clearTimeout(openTimer);
     detachDiagnostics();
     if (channel) {
@@ -377,35 +377,29 @@ export async function runPairedProbe(args: {
       reject(error);
     };
     const activateChannel = (value: RTCDataChannel) => {
+      if (channel === value) return;
       channel = value;
       diagnostics.emit('operation', 'info', 'data channel received');
-      value.onmessage = ({ data }) => {
-        if (data === 'ping') {
-          diagnostics.emit('operation', 'info', 'application ping received; pong sent');
-          value.send('pong');
-          return;
-        }
-        if (data === 'pong') {
-          receivePong?.();
-          return;
-        }
-        if (data === 'probe-verdict:pass' || data === 'probe-verdict:inconclusive') {
-          const verdict = data === 'probe-verdict:pass' ? 'pass' : 'inconclusive';
-          diagnostics.emit('operation', 'info', `peer verdict received=${verdict}`);
-          if (receivePeerVerdict) receivePeerVerdict(verdict);
-          else bufferedPeerVerdict = verdict;
-        }
-      };
-      value.onopen = () => {
+      handshake = new ProbeHandshake(
+        value,
+        (message) => diagnostics.emit('operation', 'info', message),
+        signal,
+      );
+      let openedOnce = false;
+      const onOpen = () => {
+        if (openedOnce || done) return;
+        openedOnce = true;
         if (openTimer !== undefined) clearTimeout(openTimer);
         rejectOpened = undefined;
         diagnostics.emit('operation', 'success', 'data channel open');
         resolve(value);
       };
+      value.onopen = onOpen;
       value.onerror = () => {
         diagnostics.emit('failure', 'failure', 'data channel error');
         rejectOpened?.(new Error('data channel error'));
       };
+      if (value.readyState === 'open') onOpen();
     };
     if (host) activateChannel(pc.createDataChannel('matrix', { ordered: true }));
     pc.ondatachannel = ({ channel: incoming }) => {
@@ -522,47 +516,12 @@ export async function runPairedProbe(args: {
     }
     const active = await opened;
     if (pollFailure) throw pollFailure;
-    const remoteVerdict = new Promise<'pass' | 'inconclusive' | 'timeout'>((resolve) => {
-      const timer = window.setTimeout(() => {
-        receivePeerVerdict = undefined;
-        resolve('timeout');
-      }, 3_000);
-      receivePeerVerdict = (verdict) => {
-        window.clearTimeout(timer);
-        receivePeerVerdict = undefined;
-        resolve(verdict);
-      };
-      if (bufferedPeerVerdict) {
-        const verdict = bufferedPeerVerdict;
-        bufferedPeerVerdict = undefined;
-        receivePeerVerdict(verdict);
-      }
-    });
-    const ping = new Promise<boolean>((resolve) => {
-      const timer = window.setTimeout(() => {
-        receivePong = undefined;
-        resolve(false);
-      }, 3_000);
-      receivePong = () => {
-        clearTimeout(timer);
-        receivePong = undefined;
-        diagnostics.emit('operation', 'success', 'application pong received');
-        resolve(true);
-      };
-      diagnostics.emit('operation', 'start', 'application ping sent');
-      active.send('ping');
-    });
-    const verified = await ping;
+    if (!handshake) throw new Error('probe handshake unavailable');
+    const verified = await handshake.verify();
     const selected = await selectedPair(pc, diagnostics);
     const policy = candidatePolicy(profile, selected, host);
     const localPass = verified && !policy;
-    active.send(`probe-verdict:${localPass ? 'pass' : 'inconclusive'}`);
-    diagnostics.emit(
-      'operation',
-      'info',
-      `local verdict sent=${localPass ? 'pass' : 'inconclusive'}`,
-    );
-    const peerVerdict = await remoteVerdict;
+    const peerVerdict = await handshake.confirm(localPass);
     if (!verified)
       return finish({
         outcome: 'inconclusive',
@@ -614,6 +573,7 @@ export async function runPairedProbe(args: {
       close,
     });
   } finally {
+    handshake?.dispose();
     window.clearInterval(poll);
     signal?.removeEventListener('abort', abort);
     detachDiagnostics();

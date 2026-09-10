@@ -1,7 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiClient, type Credentials, type IssuedAttempt } from '../src/client/api.js';
+import { ApiClient, ApiError, type Credentials, type IssuedAttempt } from '../src/client/api.js';
 
 describe('API probe-result client', () => {
+  it('preserves HTTP status for safe refresh failure classification', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(Response.json({ error: 'service unavailable' }, { status: 502 })),
+    );
+    try {
+      const request = new ApiClient().createRoom();
+      await expect(request).rejects.toBeInstanceOf(ApiError);
+      await expect(request).rejects.toMatchObject({ status: 502, message: 'service unavailable' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('clamps late cleanup elapsed time before sending a terminal result', async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => {
       void _input;

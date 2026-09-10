@@ -61,6 +61,15 @@ export type RoomStatus = z.infer<typeof statusSchema>;
 export type IssuedAttempt = z.infer<typeof attemptSchema>;
 export type IssuedDiagnosticManifest = DiagnosticCategory[];
 
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export class ApiClient {
   constructor(private readonly base = '') {}
   private async request<T>(
@@ -78,7 +87,8 @@ export class ApiClient {
     const response = await fetch(`${this.base}${path}`, { ...init, headers, signal });
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok)
-      throw new Error(
+      throw new ApiError(
+        response.status,
         typeof payload === 'object' && payload && 'error' in payload
           ? String(payload.error)
           : `HTTP ${response.status}`,

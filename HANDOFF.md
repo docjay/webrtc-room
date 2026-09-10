@@ -1,5 +1,69 @@
 # Copilot build handoff
 
+## Asymmetric probe handshake and managed refresh - 2026-09-10
+
+The supplied two-sided Codex reports establish a working host/UDP selected pair
+and an open channel on both devices. A's ping received B's pong, proving traffic
+in both directions, but B's separate challenge timed out. The strict diagnostic
+verdict therefore rejected Direct even though ICE worked. This is distinct from
+the earlier 29-second Direct negotiation timeout; do not retroactively claim
+that the earlier failure has the same cause.
+
+TURN failed separately: A reported a generic refresh failure while B's relay
+probes remained in ICE `new`. Existing code demanded exact refreshed URL
+identity and hid request/alignment/setup failures under one message. Different
+initial provider hosts on A and B are valid and do not establish which refresh
+error actually happened. Host rotation is a known brittle code path to correct,
+not a proven explanation for every supplied TURN failure.
+
+Implemented `ProbeHandshake`: each side sends its own nonce-matched challenge
+and retries every 200 ms within the existing three-second bound. An unrelated
+pong cannot pass; selected candidate policy and the peer's positive verdict
+remain required. Early verdicts are buffered, open events are idempotent, and
+already-open incoming channels activate immediately. Abort, close, send errors
+and disposal settle pending work and clear timers/listeners. This addresses
+early-message loss without claiming to reconstruct the exact lost-message
+ordering in the supplied reports.
+
+Managed refresh reserves exact returned URLs before mapping an unambiguous
+same-transport/same-port host replacement. It never attaches new credentials to
+an old, unreturned URL. HTTP status, alignment failures and RTC setup failures
+are distinguishable without logging raw provider responses or secrets.
+Immediate events and shared terminal details retain actual endpoint evidence;
+manifest labels remain the requested endpoints.
+
+Sol medium was assigned the handshake investigation after previous listener
+corrections proved insufficient; Terra medium was assigned managed refresh.
+Both were interrupted by the internet outage and returned no implementation.
+After resumption, the user-selected Astra root implemented the scoped fallback,
+tests and integration rather than relaunching empty agents. No additional
+premium review, credential use or hosted resource operation was performed.
+
+Final `npm run check` passed 99 unit/integration tests, formatting, typecheck,
+lint and production builds. Three focused Chromium cases passed: real local
+RTC recovers an injected dropped first challenge and retains Direct; mocked
+provider rotation uses the actual returned host; HTTP 502 reports a safe status
+without a secret-shaped response payload. Unit cases cover nonce mismatch,
+negative/absent verdicts, cancellation/close/send errors, exact-match reservation,
+endpoint ambiguity and incompatible transport/port/credentials.
+
+The broader browser run passed 11 cases, skipped one opt-in WebKit case and
+failed the existing public-STUN pass assertion. An isolated unchanged
+`bec7710` checkout also showed bilateral STUN negotiation timeouts on the same
+connection; its smoke stopped earlier waiting for speed completion. This is
+not a demonstrated handshake regression, but current public-STUN connectivity
+has not been re-established. No assertion was weakened and the isolated
+comparison checkout was removed. The injected negative/withheld peer-verdict
+cases still reject pass. Provider mocks do not prove live TURN traversal;
+fresh deployed reports are needed to establish the original refresh failure.
+
+No new migration or credential configuration is required. Codex must deploy
+matching client/Worker artifacts while preserving migrations 0001 through 0003
+and existing settings. Refresh both clients and create a new room: nonce-based
+ping/pong frames require matching new clients. Do not reuse an old open tab.
+Reproduce the two-Codex-tab setup and compare both devices' refreshed endpoint
+and challenge/pong/verdict evidence. No deployment was performed locally.
+
 ## Candidate and observed-pair event evidence - 2026-09-10
 
 Implementation source commit: `5dda71c5a757a930fb89c02bd033e6f7a92fe230`.

@@ -12,6 +12,7 @@ import {
   type Profile,
 } from '../shared/domain.js';
 import { ApiClient, type Credentials, type IssuedAttempt } from './api.js';
+import { alignTemporaryTurnCredentials, managedTurnFailure } from './managed-turn.js';
 import { ReportBuffer, copyReport, downloadReport } from './report.js';
 import { DeviceCheckController, type DeviceCheckSnapshot } from './device-checks.js';
 import { DiagnosticsDrawer } from './components/DiagnosticsDrawer.js';
@@ -42,24 +43,6 @@ function configuredIce(managed: IceConfig, customText: string): IceConfig {
       ...managed.iceServers,
       ...custom.iceServers,
     ],
-  });
-}
-
-function alignTemporaryTurnCredentials(reference: IceConfig, fresh: IceConfig): IceConfig {
-  const freshByUrl = new Map(
-    fresh.iceServers.flatMap((server) => {
-      const urls = typeof server.urls === 'string' ? [server.urls] : server.urls;
-      return urls.map((url) => [url, server] as const);
-    }),
-  );
-  return iceConfigSchema.parse({
-    iceServers: reference.iceServers.map((server) => {
-      const urls = typeof server.urls === 'string' ? [server.urls] : server.urls;
-      const replacement = freshByUrl.get(urls[0]!);
-      if (!replacement?.username || !replacement.credential)
-        throw new Error('The TURN service returned a different relay configuration');
-      return { urls, username: replacement.username, credential: replacement.credential };
-    }),
   });
 }
 
@@ -932,7 +915,10 @@ function App() {
       cleanups.current.push(connection.close);
       installChat(connection.channel, suite);
       setMain('Connected');
-      record(`selected path ${candidate.pair.aLabel} → ${candidate.pair.bLabel}`, 'success');
+      record(
+        `selected path requested ${candidate.pair.aLabel} → ${candidate.pair.bLabel}`,
+        'success',
+      );
       if (profileUsesTurn(candidate.pair)) {
         setPerformance('Not run: speed checks are disabled on TURN relay paths');
         record('performance skipped on TURN relay path', 'info');
@@ -981,8 +967,22 @@ function App() {
         const probeId = `prb_${issued.id.slice(4, 24)}${profile.id.replaceAll('-', '')}`;
         let local: Awaited<ReturnType<typeof runPairedProbe>>;
         const needsManagedCredentials = managedEndpointIds.has(host ? profile.a : profile.b);
+        let phase = needsManagedCredentials ? 'refresh' : 'probe';
+        let actualEndpoint: string | undefined;
+        const recordSetup = (message: string, outcome: DiagnosticEvent['outcome']) => {
+          if (suite !== suiteGeneration.current || matrixAbort.signal.aborted) return;
+          record(`Device ${host ? 'A' : 'B'} · ${profile.id} · ${message}`, outcome, {
+            type: outcome === 'failure' ? 'failure' : 'operation',
+            elapsedMs: Math.round(window.performance.now() - startedAt),
+            attemptId: issued.id,
+            probeId,
+            peerConnectionId: `${probeId}:${host ? 'a' : 'b'}`,
+            configurationVersion: checksVersion,
+          });
+        };
         try {
           if (needsManagedCredentials) {
+            recordSetup('TURN credential refresh started', 'start');
             const fresh = await api.turnCredentials(
               activeCredentials,
               appliedTurnAccessCode,
@@ -994,7 +994,13 @@ function App() {
               alignTemporaryTurnCredentials(managedTurnConfig, fresh),
               appliedIceText,
             );
+            actualEndpoint = iceProfileLabel(host ? profile.a : profile.b, probeConfig);
+            recordSetup(
+              `TURN refresh requested=${host ? profile.aLabel : profile.bLabel}; actual=${actualEndpoint}`,
+              'success',
+            );
           }
+          phase = 'probe';
           const probeDeadlineMs = Math.max(0, startedAt + remainingMs - window.performance.now());
           local =
             probeDeadlineMs > 0
@@ -1030,12 +1036,12 @@ function App() {
                   elapsedMs: 0,
                   close: () => undefined,
                 };
-        } catch {
+        } catch (error) {
+          const detail = phase === 'refresh' ? managedTurnFailure(error) : 'RTC probe setup failed';
+          recordSetup(detail, 'failure');
           local = {
             outcome: localSignal.aborted ? 'timeout' : 'failure',
-            detail: needsManagedCredentials
-              ? 'temporary TURN credential refresh failed'
-              : 'probe setup failed',
+            detail,
             elapsedMs: window.performance.now() - startedAt,
             close: () => undefined,
           };
@@ -1046,6 +1052,8 @@ function App() {
             outcome: 'timeout',
             detail: 'local probe deadline reached before synchronization',
           };
+        if (actualEndpoint)
+          local = { ...local, detail: `actual endpoint ${actualEndpoint}; ${local.detail}` };
         if (signal.aborted || suite !== suiteGeneration.current) {
           local.close();
           return { outcome: 'cancelled', detail: 'attempt was replaced or cancelled', activeMs: 0 };
