@@ -2,6 +2,11 @@
 
 ## Stage-specific STUN outcomes - 2026-09-10
 
+Implementation source commit: `311dbd1269a4ee056707819ef70a6565dc977261`.
+Branch: `work/ux-redesign-plan`; worktree:
+`/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`.
+The subsequent handoff-only commit pins this source for `main`.
+
 This wording/evidence correction distinguishes STUN address discovery from
 mapped-address connectivity. The displayed category becomes **STUN mapped-address
 connectivity**, retaining `stun-assisted` identifiers, filtering, scheduling and
