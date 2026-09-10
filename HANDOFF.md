@@ -2,6 +2,11 @@
 
 ## Candidate and observed-pair event evidence - 2026-09-10
 
+Implementation source commit: `5dda71c5a757a930fb89c02bd033e6f7a92fe230`.
+Branch: `work/ux-redesign-plan`; worktree:
+`/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`.
+The subsequent handoff-only commit pins this source for `main`.
+
 This milestone adds diagnostics for the reported host-only timeout between two
 Codex tabs; it does not assume or fix a cause without candidate/ICE evidence.
 Paired probes emit candidate addresses and stages, ICE state transitions and
