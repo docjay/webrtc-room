@@ -2,6 +2,11 @@
 
 ## Asymmetric probe handshake and managed refresh - 2026-09-10
 
+Implementation source commit: `8e187fe098b753bb66f9ba83468ded9e99fd62ed`.
+Branch: `work/ux-redesign-plan`; worktree:
+`/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`.
+The subsequent handoff-only commit pins this source for `main`.
+
 The supplied two-sided Codex reports establish a working host/UDP selected pair
 and an open channel on both devices. A's ping received B's pong, proving traffic
 in both directions, but B's separate challenge timed out. The strict diagnostic
