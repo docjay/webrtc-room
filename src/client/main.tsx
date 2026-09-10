@@ -332,8 +332,29 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [credentials]);
   const record = useCallback(
-    (message: string, outcome: DiagnosticEvent['outcome'] = 'info') => {
-      const event = report.record('summary', outcome, message, 0, attempt?.id);
+    (
+      message: string,
+      outcome: DiagnosticEvent['outcome'] = 'info',
+      details: Partial<
+        Pick<
+          DiagnosticEvent,
+          | 'type'
+          | 'elapsedMs'
+          | 'attemptId'
+          | 'probeId'
+          | 'peerConnectionId'
+          | 'configurationVersion'
+        >
+      > = {},
+    ) => {
+      const event = report.record(
+        details.type ?? 'summary',
+        outcome,
+        message,
+        details.elapsedMs ?? 0,
+        details.attemptId ?? attempt?.id,
+        details,
+      );
       if (!event) {
         setUploadStatus('truncated');
         return;
@@ -957,6 +978,7 @@ function App() {
           ),
         );
         let probeConfig = appliedConfig;
+        const probeId = `prb_${issued.id.slice(4, 24)}${profile.id.replaceAll('-', '')}`;
         let local: Awaited<ReturnType<typeof runPairedProbe>>;
         const needsManagedCredentials = managedEndpointIds.has(host ? profile.a : profile.b);
         try {
@@ -982,7 +1004,7 @@ function App() {
                   attempt: issued,
                   profile,
                   pairId: profile.id,
-                  probeId: `prb_${issued.id.slice(4, 24)}${profile.id.replaceAll('-', '')}`,
+                  probeId,
                   peerId: host ? room.guestParticipantId! : room.hostParticipantId,
                   host,
                   config: probeConfig,
@@ -990,6 +1012,17 @@ function App() {
                     localSignal.aborted || cancelled.current || suite !== suiteGeneration.current,
                   signal: localSignal,
                   deadlineMs: Math.max(1, probeDeadlineMs - coordinationReserveMs),
+                  onDiagnostic: (event) => {
+                    if (suite !== suiteGeneration.current || matrixAbort.signal.aborted) return;
+                    record(event.message, event.outcome, {
+                      type: event.type,
+                      elapsedMs: event.elapsedMs,
+                      attemptId: issued.id,
+                      probeId,
+                      peerConnectionId: `${probeId}:${host ? 'a' : 'b'}`,
+                      configurationVersion: checksVersion,
+                    });
+                  },
                 })
               : {
                   outcome: 'timeout',
@@ -1643,15 +1676,12 @@ function App() {
         id: 'events',
         title: 'Event log and timing',
         summary: `${report.snapshot().events.length} retained`,
-        events: report
-          .snapshot()
-          .events.slice(-50)
-          .map((event) => ({
-            id: event.spanId,
-            timestamp: event.clientTime,
-            text: event.payload.message ?? event.type,
-            outcome: event.outcome,
-          })),
+        events: report.snapshot().events.map((event) => ({
+          id: event.spanId,
+          timestamp: event.clientTime,
+          text: `${event.probeId ? `+${Math.round(event.elapsedMs)} ms · ` : ''}${event.payload.message ?? event.type}`,
+          outcome: event.outcome,
+        })),
       },
     ],
   };

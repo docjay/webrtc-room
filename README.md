@@ -33,6 +33,12 @@ all speed-check traffic.
 
 ## Evidence limits
 
+Paired-probe event logs include candidate IP addresses or mDNS names, ports,
+ICE transitions, and observed candidate-pair evidence. These addresses are
+included in copied/downloaded reports and server-saved owner-only diagnostics;
+review them before sharing. Credentials and raw SDP/candidate strings remain
+excluded. Missing browser fields are unavailable, not inferred.
+
 Paired diagnostics now run five capability checks: Direct, STUN-assisted,
 TURN UDP, TURN TLS, and TURN TCP. Alternate endpoints are fallbacks, not an
 exhaustive pair matrix. Open **Connection checks → Pair details** in the wider

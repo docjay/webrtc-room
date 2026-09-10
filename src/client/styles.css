@@ -768,6 +768,11 @@ body:has(.diagnostics-drawer) .app-shell {
   font-size: 0.75rem;
 }
 
+.event-list span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .field-error {
   color: #ae2336;
   font-size: 0.86rem;

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { createWorker, type Env } from '../src/server/worker.js';
 import { sqliteD1 } from './sqlite-d1.js';
+import { ReportBuffer } from '../src/client/report.js';
 
 const schema = (
   await Promise.all(
@@ -45,6 +46,56 @@ async function credentials(request: (path: string, init?: RequestInit) => Promis
 }
 
 describe('worker room integration', () => {
+  it('saves candidate addresses for owner-only reports without retaining credentials', async () => {
+    const { request } = await fixture({ ENVIRONMENT: 'development', OWNER_ID: 'owner' });
+    const { host, guest, auth } = await credentials(request);
+    const report = new ReportBuffer();
+    const event = report.record(
+      'candidate',
+      'info',
+      'Device A pair-direct-0 host 192.0.2.10:5000 peer.local credential=client-secret',
+      30,
+      undefined,
+      { probeId: 'prb_abcdefghijkl', peerConnectionId: 'prb_abcdefghijkl:a' },
+    )!;
+    expect(
+      (
+        await request('/api/runs', {
+          method: 'POST',
+          headers: auth(host),
+          body: JSON.stringify({ runId: report.runId }),
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await request(`/api/runs/${report.runId}/events`, {
+          method: 'POST',
+          headers: auth(host),
+          body: JSON.stringify({
+            events: [
+              { ...event, payload: { message: `${event.payload.message} pwd=server-secret` } },
+            ],
+          }),
+        })
+      ).status,
+    ).toBe(200);
+    for (const headers of [undefined, auth(host), auth(guest)]) {
+      expect(
+        (await request(`/api/admin/runs/${report.runId}`, headers ? { headers } : {})).status,
+      ).toBe(403);
+    }
+    for (const path of [`/api/admin/runs/${report.runId}`, '/api/admin/export']) {
+      const saved = await request(path, { headers: { 'x-dev-identity': 'owner' } });
+      expect(saved.status).toBe(200);
+      const body = await saved.text();
+      expect(body).toContain('192.0.2.10:5000');
+      expect(body).toContain('peer.local');
+      expect(body).toContain('prb_abcdefghijkl');
+      expect(body).not.toMatch(/client-secret|server-secret/);
+    }
+  });
+
   it('falls back to the Vite client entry for hosted browser routes', async () => {
     const DB = await sqliteD1(schema);
     const requested: string[] = [];

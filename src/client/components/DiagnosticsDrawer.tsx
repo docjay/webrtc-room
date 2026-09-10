@@ -20,6 +20,7 @@ function focusableElements(container: HTMLElement) {
 
 function DrawerGroup({ group }: { group: DiagnosticGroup }) {
   const [showPairDetails, setShowPairDetails] = useState(false);
+  const [visibleEvents, setVisibleEvents] = useState(50);
   return (
     <details className="diagnostic-group">
       <summary>
@@ -118,14 +119,29 @@ function DrawerGroup({ group }: { group: DiagnosticGroup }) {
           </>
         )}
         {group.events && (
-          <ol className="event-list">
-            {group.events.map((event) => (
-              <li key={event.id}>
-                <time>{event.timestamp}</time>
-                <span>{event.text}</span>
-              </li>
-            ))}
-          </ol>
+          <>
+            <p className="capability-help">
+              Candidate IP addresses and mDNS names are included in this log, copied/downloaded
+              reports, and server-saved diagnostics. Review them before sharing.
+            </p>
+            {group.events.length > visibleEvents && (
+              <button
+                className="button button--secondary"
+                type="button"
+                onClick={() => setVisibleEvents((count) => count + 50)}
+              >
+                Show earlier events ({group.events.length - visibleEvents} remaining)
+              </button>
+            )}
+            <ol className="event-list">
+              {group.events.slice(-visibleEvents).map((event) => (
+                <li key={event.id}>
+                  <time>{event.timestamp}</time>
+                  <span>{event.text}</span>
+                </li>
+              ))}
+            </ol>
+          </>
         )}
         {group.content}
       </div>

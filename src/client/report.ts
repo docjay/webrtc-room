@@ -1,6 +1,9 @@
 import { createId, redact, type DiagnosticEvent } from '../shared/domain.js';
 const MAX_EVENTS = 5000;
 const MAX_BYTES = 2 * 1024 * 1024;
+const SUMMARY_RESERVED_EVENTS = 100;
+const SUMMARY_RESERVED_BYTES = 64 * 1024;
+type EventContext = Pick<DiagnosticEvent, 'probeId' | 'peerConnectionId' | 'configurationVersion'>;
 export class ReportBuffer {
   readonly runId = createId('run');
   private events: DiagnosticEvent[] = [];
@@ -13,10 +16,14 @@ export class ReportBuffer {
     message: string,
     elapsedMs = 0,
     attemptId?: string,
+    { probeId, peerConnectionId, configurationVersion }: EventContext = {},
   ): DiagnosticEvent | undefined {
     const event: DiagnosticEvent = {
       runId: this.runId,
       ...(attemptId ? { attemptId } : {}),
+      ...(probeId ? { probeId } : {}),
+      ...(peerConnectionId ? { peerConnectionId } : {}),
+      ...(configurationVersion ? { configurationVersion } : {}),
       spanId: createId('span'),
       sequence: this.sequence++,
       type,
@@ -26,7 +33,10 @@ export class ReportBuffer {
       payload: { message: String(redact(message)).slice(0, 500) },
     };
     const size = JSON.stringify(event).length;
-    if (this.events.length >= MAX_EVENTS || this.bytes + size > MAX_BYTES) {
+    const important = type === 'summary' || type === 'failure' || type === 'truncation';
+    const eventLimit = important ? MAX_EVENTS : MAX_EVENTS - SUMMARY_RESERVED_EVENTS;
+    const byteLimit = important ? MAX_BYTES : MAX_BYTES - SUMMARY_RESERVED_BYTES;
+    if (this.events.length >= eventLimit || this.bytes + size > byteLimit) {
       this.dropped++;
       return undefined;
     }

@@ -1,5 +1,33 @@
 # Status - room-first UX redesign implemented
 
+## Current milestone - candidate event evidence, 2026-09-10
+
+- The user approved actual candidate addresses in the event log, exports, and
+  server-saved reports to investigate a host-only timeout between two Codex
+  tabs. Do not infer the timeout's cause from allocation success alone.
+- Terra medium owns bounded RTC candidate/pair/lifecycle instrumentation and
+  sanitized-field tests. Root owns event-buffer/upload wiring, UI access to
+  earlier events, privacy text, integration coverage and handoff. No escalation.
+- Candidate telemetry uses explicit issued attempt/probe/device correlation,
+  monotonic elapsed time and existing bounded upload/report paths. No raw
+  SDP/candidate strings, ICE credentials, TURN secrets or chat bodies are added.
+- Implemented local gathered/signaled/filtered and remote received/queued/
+  accepted/rejected evidence, ICE/signaling states, ping/verdict stages and
+  deduplicated observed pair states/endpoints. Stats sample at most once per
+  second plus existing selected-pair reads; cleanup stops observations.
+- Instrumentation exposed an early-ping handler window. Protocol listeners now
+  attach when the channel is acquired, before awaiting open; early verdicts
+  are buffered. This is not proof of the original Codex host-only timeout cause.
+- `npm run check` passed (84 tests, format/type/lint and production builds).
+  `npm run test:browser` passed nine Chromium cases; one opt-in WebKit case was
+  skipped. Actual local two-page RTC evidence includes candidate addresses,
+  observed pairs, copied reports, upload requests and readable mobile event
+  logs. Worker tests preserve addresses only in owner-readable reports and
+  strip credential fields/text. Session images: `files/candidate-evidence/`.
+- Next: Codex deployment, refresh both clients, then reproduce the two-Codex-tab
+  case and compare candidate/ICE timelines. No new migration or credential
+  configuration is needed. No new external TURN/network test was performed.
+
 ## Current milestone - TURN evidence classification, 2026-09-09
 
 - A user-provided deployed two-device report shows successful allocations at

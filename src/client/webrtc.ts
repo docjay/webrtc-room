@@ -1,4 +1,5 @@
 import type { ApiClient, Credentials, IssuedAttempt } from './api.js';
+import { PairedRtcDiagnostics, type DiagnosticCallback } from './rtc-diagnostics.js';
 import { normalizeRtcIceCandidate, type CandidateEvidence } from '../shared/normalization.js';
 import { sanitizeIceConfig, type IceConfig, type Profile } from '../shared/domain.js';
 
@@ -166,11 +167,21 @@ export type PairEvidence = {
   localRelayProtocol: string;
   remoteRelayProtocol: string;
 };
-async function selectedPair(pc: RTCPeerConnection): Promise<PairEvidence | undefined> {
+async function selectedPair(
+  pc: RTCPeerConnection,
+  diagnostics?: PairedRtcDiagnostics,
+): Promise<PairEvidence | undefined> {
   // Candidate-pair stats can appear shortly after a channel opens. Sampling
   // avoids one peer discarding an otherwise matching connection prematurely.
   for (let sample = 0; sample < 10; sample++) {
-    const stats = await pc.getStats();
+    let stats: RTCStatsReport;
+    try {
+      stats = await pc.getStats();
+    } catch (error) {
+      diagnostics?.statsUnavailable(error);
+      return undefined;
+    }
+    diagnostics?.reportStats(stats);
     for (const raw of stats.values()) {
       const report = raw as unknown as Record<string, unknown>;
       if (
@@ -262,6 +273,7 @@ export async function runPairedProbe(args: {
   cancelled: () => boolean;
   signal?: AbortSignal;
   deadlineMs?: number;
+  onDiagnostic?: DiagnosticCallback;
 }): Promise<ProbeTerminal> {
   const {
     api,
@@ -276,15 +288,19 @@ export async function runPairedProbe(args: {
     cancelled,
     signal,
     deadlineMs = PAIRED_PROBE_DEADLINE_MS,
+    onDiagnostic,
   } = args;
   const start = performance.now();
-  if (profile.a === 'direct-tcp' || profile.b === 'direct-tcp')
+  const diagnostics = new PairedRtcDiagnostics(host ? 'A' : 'B', profile.id, onDiagnostic);
+  if (profile.a === 'direct-tcp' || profile.b === 'direct-tcp') {
+    diagnostics.emit('summary', 'info', 'probe terminal=unsupported; browser cannot force ICE-TCP');
     return {
       outcome: 'unsupported',
       detail: 'Standard WebRTC does not expose candidate-pair or ICE-TCP forcing.',
       elapsedMs: 0,
       close: () => undefined,
     };
+  }
   const pc = new RTCPeerConnection(requestedServers(profile, host ? 'a' : 'b', config));
   let cursor = 0,
     remoteChannel: RTCDataChannel | undefined,
@@ -293,37 +309,101 @@ export async function runPairedProbe(args: {
     remoteDescriptionSet = false,
     pollFailure: Error | undefined;
   let rejectOpened: ((error: Error) => void) | undefined;
+  let receivePong: (() => void) | undefined;
+  let receivePeerVerdict: ((value: 'pass' | 'inconclusive') => void) | undefined;
+  let bufferedPeerVerdict: 'pass' | 'inconclusive' | undefined;
+  let openTimer: number | undefined;
+  let terminalRecorded = false;
   const pendingCandidates: RTCIceCandidateInit[] = [];
+  const detachDiagnostics = () => {
+    pc.onicecandidate = null;
+    pc.onicecandidateerror = null;
+    pc.onicegatheringstatechange = null;
+    pc.oniceconnectionstatechange = null;
+    pc.onsignalingstatechange = null;
+  };
   const close = () => {
     done = true;
+    if (openTimer !== undefined) window.clearTimeout(openTimer);
+    detachDiagnostics();
+    if (channel) {
+      channel.onopen = null;
+      channel.onmessage = null;
+      channel.onerror = null;
+    }
     channel?.close();
     remoteChannel?.close();
     pc.close();
   };
+  const terminal = (outcome: ProbeTerminal['outcome']) => {
+    if (terminalRecorded) return;
+    terminalRecorded = true;
+    diagnostics.terminal(outcome, pc);
+  };
+  const finish = (result: ProbeTerminal) => {
+    terminal(result.outcome);
+    return result;
+  };
   const transmit = (type: 'offer' | 'answer' | 'candidate' | 'bye', payload: string) =>
     api.sendSignal(credentials, attempt, probeId, pairId, peerId, { type, payload }, signal);
+  pc.onicegatheringstatechange = () => diagnostics.state('ICE gathering', pc.iceGatheringState);
+  pc.oniceconnectionstatechange = () => diagnostics.state('ICE connection', pc.iceConnectionState);
+  pc.onsignalingstatechange = () => diagnostics.state('signaling', pc.signalingState);
+  pc.onicecandidateerror = (event) => diagnostics.candidateError(event.errorText, event.errorCode);
   pc.onicecandidate = ({ candidate }) => {
-    if (candidate && candidateMatchesProfile(profile, host ? 'a' : 'b', candidate))
-      void transmit('candidate', JSON.stringify(candidate.toJSON())).catch((error: unknown) => {
+    if (!candidate) {
+      diagnostics.emit('candidate', 'info', 'local ICE gathering complete');
+      return;
+    }
+    diagnostics.candidate('local', 'gathered', candidate);
+    if (!candidateMatchesProfile(profile, host ? 'a' : 'b', candidate)) {
+      diagnostics.candidate('local', 'filtered', candidate);
+      return;
+    }
+    void transmit('candidate', JSON.stringify(candidate.toJSON()))
+      .then(() => diagnostics.candidate('local', 'signaled', candidate))
+      .catch((error: unknown) => {
         pollFailure = error instanceof Error ? error : new Error('candidate signaling failed');
+        diagnostics.emit('failure', 'failure', 'candidate signaling failed');
         rejectOpened?.(pollFailure);
+        terminal('failure');
         close();
       });
   };
   const opened = new Promise<RTCDataChannel>((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(new Error('data channel deadline')), deadlineMs);
+    openTimer = window.setTimeout(() => reject(new Error('data channel deadline')), deadlineMs);
     rejectOpened = (error) => {
-      window.clearTimeout(timer);
+      if (openTimer !== undefined) window.clearTimeout(openTimer);
       reject(error);
     };
     const activateChannel = (value: RTCDataChannel) => {
       channel = value;
+      diagnostics.emit('operation', 'info', 'data channel received');
+      value.onmessage = ({ data }) => {
+        if (data === 'ping') {
+          diagnostics.emit('operation', 'info', 'application ping received; pong sent');
+          value.send('pong');
+          return;
+        }
+        if (data === 'pong') {
+          receivePong?.();
+          return;
+        }
+        if (data === 'probe-verdict:pass' || data === 'probe-verdict:inconclusive') {
+          const verdict = data === 'probe-verdict:pass' ? 'pass' : 'inconclusive';
+          diagnostics.emit('operation', 'info', `peer verdict received=${verdict}`);
+          if (receivePeerVerdict) receivePeerVerdict(verdict);
+          else bufferedPeerVerdict = verdict;
+        }
+      };
       value.onopen = () => {
-        clearTimeout(timer);
+        if (openTimer !== undefined) clearTimeout(openTimer);
         rejectOpened = undefined;
+        diagnostics.emit('operation', 'success', 'data channel open');
         resolve(value);
       };
       value.onerror = () => {
+        diagnostics.emit('failure', 'failure', 'data channel error');
         rejectOpened?.(new Error('data channel error'));
       };
     };
@@ -344,93 +424,163 @@ export async function runPairedProbe(args: {
         const message = parsed as { type?: unknown; payload?: unknown };
         if (typeof message.type !== 'string' || typeof message.payload !== 'string') continue;
         if (message.type === 'offer') {
-          await pc.setRemoteDescription(JSON.parse(message.payload) as RTCSessionDescriptionInit);
+          const description = JSON.parse(message.payload) as RTCSessionDescriptionInit;
+          diagnostics.embeddedCandidates(
+            'offer',
+            typeof description.sdp === 'string' ? description.sdp : '',
+          );
+          await pc.setRemoteDescription(description);
           remoteDescriptionSet = true;
-          for (const candidate of pendingCandidates) await pc.addIceCandidate(candidate);
+          diagnostics.state('remote offer', 'applied');
+          for (const candidate of pendingCandidates) {
+            try {
+              await pc.addIceCandidate(candidate);
+              diagnostics.candidate('remote', 'accepted', new RTCIceCandidate(candidate));
+            } catch {
+              diagnostics.candidate('remote', 'rejected', new RTCIceCandidate(candidate));
+              throw new Error('remote candidate rejected');
+            }
+          }
           pendingCandidates.length = 0;
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           await transmit('answer', JSON.stringify(answer));
         } else if (message.type === 'answer') {
-          await pc.setRemoteDescription(JSON.parse(message.payload) as RTCSessionDescriptionInit);
+          const description = JSON.parse(message.payload) as RTCSessionDescriptionInit;
+          diagnostics.embeddedCandidates(
+            'answer',
+            typeof description.sdp === 'string' ? description.sdp : '',
+          );
+          await pc.setRemoteDescription(description);
           remoteDescriptionSet = true;
-          for (const candidate of pendingCandidates) await pc.addIceCandidate(candidate);
+          diagnostics.state('remote answer', 'applied');
+          for (const candidate of pendingCandidates) {
+            try {
+              await pc.addIceCandidate(candidate);
+              diagnostics.candidate('remote', 'accepted', new RTCIceCandidate(candidate));
+            } catch {
+              diagnostics.candidate('remote', 'rejected', new RTCIceCandidate(candidate));
+              throw new Error('remote candidate rejected');
+            }
+          }
           pendingCandidates.length = 0;
         } else if (message.type === 'candidate') {
           const candidate = JSON.parse(message.payload) as RTCIceCandidateInit;
-          if (remoteDescriptionSet) await pc.addIceCandidate(candidate);
-          else pendingCandidates.push(candidate);
+          let safeCandidate: RTCIceCandidate;
+          try {
+            safeCandidate = new RTCIceCandidate(candidate);
+          } catch {
+            diagnostics.candidate('remote', 'rejected', {});
+            throw new Error('remote candidate invalid');
+          }
+          diagnostics.candidate('remote', 'received', safeCandidate);
+          if (remoteDescriptionSet) {
+            try {
+              await pc.addIceCandidate(candidate);
+              diagnostics.candidate('remote', 'accepted', safeCandidate);
+            } catch {
+              diagnostics.candidate('remote', 'rejected', safeCandidate);
+              throw new Error('remote candidate rejected');
+            }
+          } else {
+            pendingCandidates.push(candidate);
+            diagnostics.candidate('remote', 'queued', safeCandidate);
+          }
         }
       }
     } catch {
       pollFailure = new Error('signaling poll failed');
+      diagnostics.emit(
+        'failure',
+        'failure',
+        'signaling poll or remote candidate application failed',
+      );
       rejectOpened?.(pollFailure);
+      terminal('failure');
       close();
     }
   });
   const poll = window.setInterval(() => void pollSignals(), 150);
+  const interruptedOutcome = () =>
+    signal?.reason instanceof DOMException && signal.reason.name === 'TimeoutError'
+      ? 'timeout'
+      : 'cancelled';
   const abort = () => {
     rejectOpened?.(new DOMException('attempt cancelled', 'AbortError'));
+    terminal(interruptedOutcome());
     close();
   };
   try {
     if (signal?.aborted || cancelled()) throw new DOMException('attempt cancelled', 'AbortError');
     signal?.addEventListener('abort', abort, { once: true });
+    diagnostics.startStats(pc);
     if (host) {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       await transmit('offer', JSON.stringify(offer));
+      diagnostics.emit('operation', 'success', 'local offer created and signaled');
     }
     const active = await opened;
     if (pollFailure) throw pollFailure;
     const remoteVerdict = new Promise<'pass' | 'inconclusive' | 'timeout'>((resolve) => {
       const timer = window.setTimeout(() => {
-        active.removeEventListener('message', receiveVerdict);
+        receivePeerVerdict = undefined;
         resolve('timeout');
       }, 3_000);
-      const receiveVerdict = ({ data }: MessageEvent) => {
-        if (data !== 'probe-verdict:pass' && data !== 'probe-verdict:inconclusive') return;
+      receivePeerVerdict = (verdict) => {
         window.clearTimeout(timer);
-        active.removeEventListener('message', receiveVerdict);
-        resolve(data === 'probe-verdict:pass' ? 'pass' : 'inconclusive');
+        receivePeerVerdict = undefined;
+        resolve(verdict);
       };
-      active.addEventListener('message', receiveVerdict);
+      if (bufferedPeerVerdict) {
+        const verdict = bufferedPeerVerdict;
+        bufferedPeerVerdict = undefined;
+        receivePeerVerdict(verdict);
+      }
     });
     const ping = new Promise<boolean>((resolve) => {
-      const timer = window.setTimeout(() => resolve(false), 3_000);
-      active.onmessage = ({ data }) => {
-        if (data === 'ping') active.send('pong');
-        if (data === 'pong') {
-          clearTimeout(timer);
-          resolve(true);
-        }
+      const timer = window.setTimeout(() => {
+        receivePong = undefined;
+        resolve(false);
+      }, 3_000);
+      receivePong = () => {
+        clearTimeout(timer);
+        receivePong = undefined;
+        diagnostics.emit('operation', 'success', 'application pong received');
+        resolve(true);
       };
+      diagnostics.emit('operation', 'start', 'application ping sent');
       active.send('ping');
     });
     const verified = await ping;
-    const selected = await selectedPair(pc);
+    const selected = await selectedPair(pc, diagnostics);
     const policy = candidatePolicy(profile, selected, host);
     const localPass = verified && !policy;
     active.send(`probe-verdict:${localPass ? 'pass' : 'inconclusive'}`);
+    diagnostics.emit(
+      'operation',
+      'info',
+      `local verdict sent=${localPass ? 'pass' : 'inconclusive'}`,
+    );
     const peerVerdict = await remoteVerdict;
     if (!verified)
-      return {
+      return finish({
         outcome: 'inconclusive',
         detail: 'data channel opened but bidirectional application ping timed out',
         elapsedMs: performance.now() - start,
         ...(selected ? { selected: describePair(selected) } : {}),
         close,
-      };
+      });
     if (policy)
-      return {
+      return finish({
         outcome: 'inconclusive',
         detail: policy,
         elapsedMs: performance.now() - start,
         ...(selected ? { selected: describePair(selected) } : {}),
         close,
-      };
+      });
     if (peerVerdict !== 'pass')
-      return {
+      return finish({
         outcome: 'inconclusive',
         detail:
           peerVerdict === 'timeout'
@@ -439,29 +589,41 @@ export async function runPairedProbe(args: {
         elapsedMs: performance.now() - start,
         ...(selected ? { selected: describePair(selected) } : {}),
         close,
-      };
-    return {
+      });
+    return finish({
       outcome: 'pass',
       detail: 'selected pair and bidirectional application ping verified',
       elapsedMs: performance.now() - start,
       ...(selected ? { selected: describePair(selected) } : {}),
       channel: active,
       close,
-    };
+    });
   } catch {
-    return {
-      outcome: cancelled()
+    diagnostics.emit('failure', 'failure', 'probe negotiation or signaling failed');
+    const outcome = signal?.aborted
+      ? interruptedOutcome()
+      : cancelled()
         ? 'cancelled'
         : performance.now() - start >= deadlineMs - 500
           ? 'timeout'
-          : 'failure',
+          : 'failure';
+    return finish({
+      outcome,
       detail: 'probe negotiation or signaling failed',
       elapsedMs: performance.now() - start,
       close,
-    };
+    });
   } finally {
     window.clearInterval(poll);
     signal?.removeEventListener('abort', abort);
+    detachDiagnostics();
+    if (channel) {
+      channel.onopen = null;
+      channel.onmessage = null;
+      channel.onerror = null;
+    }
+    pc.ondatachannel = null;
+    diagnostics.stop();
     if (!channel || channel.readyState !== 'open') close();
   }
 }

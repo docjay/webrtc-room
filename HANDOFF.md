@@ -1,5 +1,60 @@
 # Copilot build handoff
 
+## Candidate and observed-pair event evidence - 2026-09-10
+
+This milestone adds diagnostics for the reported host-only timeout between two
+Codex tabs; it does not assume or fix a cause without candidate/ICE evidence.
+Paired probes emit candidate addresses and stages, ICE state transitions and
+observed candidate-pair stats through the existing event-log/report path.
+Correlation uses the issued attempt, probe and device identity rather than
+capturing an outdated React attempt. Earlier retained events can be revealed
+in the drawer instead of only the latest 50 being accessible.
+
+**Explicit user-approved privacy change:** actual candidate IP addresses,
+mDNS names and ports appear in local events, copied/downloaded reports and
+server-saved owner-only diagnostics. Review reports before sharing. No raw SDP,
+raw candidate strings, ICE ufrag/password, TURN credentials or application data
+are logged. Browser-hidden values remain unavailable; mDNS is not resolved.
+
+No new database migration is required. Deploy matching client/Worker artifacts
+from the recorded source, preserving existing migrations/settings. Refresh both
+clients and start a new room to collect new evidence; old reports cannot gain
+missing candidate history retroactively. Compare both devices' logs when
+investigating candidate receipt versus application and actual ICE pair states.
+
+Terra medium implemented instrumentation, corrected lifecycle/field-availability
+issues and closed an early-ping listener window exposed during integration.
+Handlers now attach when the data channel is acquired and buffer early peer
+verdicts. Root integrated report/UI wiring, added persistence/browser coverage
+and hardened late-observer/deadline reporting. No model escalation. This
+early-message fix does not establish the cause of the original 29-second
+host-only timeout reported from Codex.
+The local report buffer reserves space for milestone/failure records so
+candidate details cannot consume the entire existing report allowance.
+
+Telemetry is limited per probe to 80 candidate observations, 120 pair-state
+observations and 320 events plus a single truncation notice. Unchanged records
+are deduplicated; periodic stats requests do not overlap. Existing selected-pair
+reads also feed the log so fast connections are not missed. Browser-omitted
+booleans are unavailable rather than false; transport-selected pair IDs are used
+when exposed. Timeout events retain ICE/gathering/signaling state before close.
+
+Final local evidence: `npm run check` passed 84 tests, formatting, typecheck,
+lint, and production builds. `npm run test:browser` passed nine Chromium cases
+in 31.9 seconds; one opt-in WebKit case was skipped. Actual local two-page RTC
+tests exercise candidate-address events, pair stats, copied reports, uploads,
+earlier-event access and mobile log wrapping. Worker tests verify stored/exported
+addresses remain owner-only and credential text is redacted. Synthetic fixtures
+cover IPv4/IPv6/mDNS/missing fields, selected-pair references, deduplication,
+limits, post-stop silence and timeout-state retention.
+
+Desktop/mobile screenshots are in the session's `files/candidate-evidence/`
+directory, outside Git. Mobile assertions cover the drawer and event log; an
+unrelated pre-existing long RTT-number string can overflow the background room
+surface after speed completion and was not changed here. No new external TURN
+run or Codex-embedded browser reproduction was performed. Collect fresh reports
+from both Codex tabs after deployment to investigate that environment.
+
 ## TURN evidence classification correction - 2026-09-09
 
 Implementation source commit: `360843d49366f336243fb0cec7181c9fb8d7869f`.

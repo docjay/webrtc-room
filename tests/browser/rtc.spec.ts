@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Request } from '@playwright/test';
+import type { DiagnosticEvent } from '../../src/shared/domain.js';
 
 async function capture(page: Page, name: string, fullPage = true) {
   const directory = process.env.UX_EVIDENCE_DIR;
@@ -183,14 +184,19 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
 }) => {
   const coordinationRequests = { capabilities: 0, status: 0 };
   const attemptedProbeUrls = new Set<string>();
+  const uploadedEvents: DiagnosticEvent[] = [];
   const hostContext = await browser.newContext({
     permissions: ['clipboard-read', 'clipboard-write'],
   });
   const guestContext = await browser.newContext({
     permissions: ['clipboard-read', 'clipboard-write'],
   });
-  const countCoordinationRequest = (request: { method(): string; url(): string }) => {
+  const countCoordinationRequest = (request: Request) => {
     const url = new URL(request.url());
+    if (request.method() === 'POST' && /^\/api\/runs\/[^/]+\/events$/.test(url.pathname)) {
+      const batch = request.postDataJSON() as { events: DiagnosticEvent[] };
+      uploadedEvents.push(...batch.events);
+    }
     if (/\/probes\/[^/]+$/.test(url.pathname)) attemptedProbeUrls.add(url.pathname);
     if (request.method() === 'POST' && /\/api\/rooms\/[^/]+\/capabilities$/.test(url.pathname))
       coordinationRequests.capabilities++;
@@ -324,6 +330,7 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   const copied = JSON.parse(await host.evaluate(() => navigator.clipboard.readText())) as {
     runId: string;
     attemptId: string;
+    events: DiagnosticEvent[];
     matrix: Array<{
       id: string;
       outcome: string;
@@ -340,6 +347,27 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   expect(copied.runId).toMatch(/^run_/);
   expect(copied.attemptId).toBe(hostAttempt);
   expect(copied.matrix).toHaveLength(5);
+  const candidateEvents = copied.events.filter((event) => event.type === 'candidate');
+  expect(candidateEvents.length).toBeGreaterThan(0);
+  const addressPattern = /(?:\d{1,3}\.){3}\d{1,3}|\.local\b|\[[0-9a-f:]+\]/i;
+  expect(candidateEvents.some((event) => addressPattern.test(event.payload.message ?? ''))).toBe(
+    true,
+  );
+  expect(
+    candidateEvents.every(
+      (event) =>
+        event.attemptId === hostAttempt &&
+        event.probeId?.startsWith('prb_') &&
+        event.peerConnectionId &&
+        event.elapsedMs >= 0,
+    ),
+  ).toBe(true);
+  expect(copied.events.some((event) => event.type === 'stats')).toBe(true);
+  expect(
+    uploadedEvents.some(
+      (event) => event.type === 'candidate' && addressPattern.test(event.payload.message ?? ''),
+    ),
+  ).toBe(true);
   const stun = copied.matrix.find((row) => row.id === 'stun-assisted')!;
   expect(stun.pairs.some((pair) => pair.a.includes('STUN stun.cloudflare.com:3478'))).toBe(true);
   expect(stun.pairs.some((pair) => pair.b.includes('STUN stun.cloudflare.com:3478'))).toBe(true);
@@ -348,6 +376,21 @@ test('two devices auto-check, connect, exchange chat, finish the matrix, and ren
   expect(passedStunRows.length).toBeGreaterThan(0);
   expect(passedStunRows.every((pair) => /(?:srflx|prflx)/.test(pair.selected ?? ''))).toBe(true);
   expect(copied.outcome).toBe('Connected');
+  await host.getByText('Event log and timing', { exact: true }).click();
+  await expect(host.getByText(/Candidate IP addresses and mDNS names are included/)).toBeVisible();
+  const earlierEvents = host.getByRole('button', { name: /Show earlier events/ });
+  while (await earlierEvents.count()) await earlierEvents.click();
+  await expect(host.locator('.event-list')).toContainText(candidateEvents[0]!.payload.message!);
+  await capture(host, 'desktop-candidate-event-log', false);
+  await host.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await host
+      .locator('.event-list')
+      .evaluate((element) => element.scrollWidth <= element.clientWidth),
+  ).toBe(true);
+  expect((await host.locator('.diagnostics-drawer').boundingBox())!.width).toBe(390);
+  await capture(host, 'mobile-candidate-event-log', false);
+  await host.setViewportSize({ width: 1440, height: 900 });
   await host.getByRole('button', { name: 'Compact report' }).click();
   const compact = host.getByRole('heading', { name: 'Connection summary' });
   await expect(compact).toBeVisible();
