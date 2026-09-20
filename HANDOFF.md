@@ -2,6 +2,11 @@
 
 ## Independent relay connectivity and protocol evidence - 2026-09-20
 
+Implementation source commit: `e1cb8fdca3346dc2b0c10960917d80707639926b`.
+Branch: `work/ux-redesign-plan`; worktree:
+`/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`.
+The subsequent handoff-only commit pins this source for `main`.
+
 The user's September 19 run analysis changes the earlier strict TURN acceptance
 rule: confirmed relay-only application connectivity stays usable even when
 requested access-protocol stats are unavailable. Connectivity and protocol
