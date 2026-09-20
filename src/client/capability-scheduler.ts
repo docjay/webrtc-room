@@ -1,6 +1,7 @@
 import type { DiagnosticCategory, Profile } from '../shared/domain.js';
+import type { ProbeAssessment } from '../shared/probe-assessment.js';
 
-export type PairTerminal = {
+export type PairTerminal = Partial<ProbeAssessment> & {
   outcome: 'pass' | 'inconclusive' | 'timeout' | 'unsupported' | 'cancelled' | 'failure';
   detail: string;
   selected?: string;

@@ -11,6 +11,12 @@ import {
   buildProfiles,
   diagnosticCategoryIds,
 } from '../shared/domain.js';
+import {
+  connectivitySchema,
+  protocolVerificationSchema,
+  validateAssessment,
+  type PairProtocolRequirements,
+} from '../shared/probe-assessment.js';
 import { requestXirsysTurnCredentials, XirsysError } from './xirsys.js';
 import {
   DevelopmentIdentityAdapter,
@@ -64,6 +70,8 @@ const probeResultSchema = z
     detail: z.string().min(1).max(500),
     selected: z.string().max(500).optional(),
     elapsedMs: z.number().nonnegative().max(30_000),
+    connectivity: connectivitySchema.optional(),
+    protocolVerification: protocolVerificationSchema.optional(),
   })
   .strict();
 const endpointsSchema = z
@@ -100,6 +108,9 @@ function manifestPair(attempt: { manifest_json: string }, pairId: string) {
   return manifest.success
     ? manifest.data.flatMap((category) => category.alternatives).find((pair) => pair.id === pairId)
     : undefined;
+}
+function pairRequirements(pair: { a: string; b: string }): PairProtocolRequirements {
+  return { hostUsesTurn: pair.a.startsWith('turn-'), guestUsesTurn: pair.b.startsWith('turn-') };
 }
 function expectedProbeId(attemptId: string, pairId: string) {
   return `prb_${attemptId.slice(4, 24)}${pairId.replaceAll('-', '')}`;
@@ -363,8 +374,10 @@ export function createWorker(deps: Dependencies = {}) {
           )
             return json({ error: 'forbidden' }, 403);
           const record = await repo.attempt(id.data);
-          if (!record || record.room_code !== room.data || !manifestPair(record, pair.data))
+          const manifest = record && manifestPair(record, pair.data);
+          if (!record || record.room_code !== room.data || !manifest)
             return json({ error: 'invalid probe pair' }, 400);
+          const requirements = pairRequirements(manifest);
           const currentRoom = await repo.roomStatus(room.data);
           if (!currentRoom || currentRoom.generation !== record.generation)
             return json({ error: 'attempt is no longer active' }, 409);
@@ -373,6 +386,18 @@ export function createWorker(deps: Dependencies = {}) {
           if (request.method === 'POST') {
             const input = probeResultSchema.safeParse(await body(request));
             if (!input.success) return json({ error: 'invalid probe result' }, 400);
+            const assessment = validateAssessment(
+              input.data.outcome,
+              {
+                ...(input.data.connectivity ? { connectivity: input.data.connectivity } : {}),
+                ...(input.data.protocolVerification
+                  ? { protocolVerification: input.data.protocolVerification }
+                  : {}),
+              },
+              requirements,
+              access.slot,
+            );
+            if (!assessment) return json({ error: 'contradictory probe assessment' }, 400);
             await repo.recordProbeResult(
               record,
               access,
@@ -383,17 +408,19 @@ export function createWorker(deps: Dependencies = {}) {
                     detail: input.data.detail,
                     elapsedMs: input.data.elapsedMs,
                     selected: input.data.selected,
+                    assessment,
                   }
                 : {
                     outcome: input.data.outcome,
                     detail: input.data.detail,
                     elapsedMs: input.data.elapsedMs,
+                    assessment,
                   },
             );
-            return json(await repo.probeResultStatus(record, pair.data));
+            return json(await repo.probeResultStatus(record, pair.data, requirements));
           }
           if (request.method === 'GET')
-            return json(await repo.probeResultStatus(record, pair.data));
+            return json(await repo.probeResultStatus(record, pair.data, requirements));
         }
         const signal = url.pathname.match(/^\/api\/signals\/([^/]+)$/);
         if (signal) {
@@ -535,13 +562,19 @@ export function createWorker(deps: Dependencies = {}) {
             return report ? json(report) : json({ error: 'not found' }, 404);
           }
           if (url.pathname === '/api/admin/export') {
-            const runs = await Promise.all(
-              (await repo.exportRuns()).map(async (run) => ({
-                ...run,
-                report: await repo.runDetail(run.id),
-              })),
-            );
-            return json({ runs });
+            const [runs, attemptSummaries] = await Promise.all([
+              Promise.all(
+                (await repo.exportRuns()).map(async (run) => ({
+                  ...run,
+                  report: await repo.runDetail(run.id),
+                })),
+              ),
+              repo.listAttemptReports(),
+            ]);
+            const attempts = (
+              await Promise.all(attemptSummaries.map((attempt) => repo.attemptReport(attempt.id)))
+            ).filter((attempt): attempt is NonNullable<typeof attempt> => Boolean(attempt));
+            return json({ runs, attempts });
           }
           return json({ error: 'not found' }, 404);
         }

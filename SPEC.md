@@ -32,7 +32,8 @@ Build a two-device WebRTC data-channel demo with diagnostics before, during, and
 - Preflight can run without a second device. Probe each STUN endpoint and each configured TURN URL independently with a disposable peer connection, bounded timer, and cleanup. Report candidate gathering/allocation independently from actual peer connectivity.
 - The default connection policy and automatic matrix are defined below. Individual TURN probes isolate each URL. Tests requiring a relay on both devices require both devices to configure TURN; one-sided relay tests are distinct and use only the required side's credentials.
 - Display direct UDP, observed ICE-TCP, TURN UDP/TCP/TLS evidence separately. Candidate `protocol` and TURN `relayProtocol` represent different hops. Preserve raw supported fields; label unavailable fields rather than guessing.
-- Each device verifies its requested TURN transport using its own selected local relay candidate's `relayProtocol`: `udp`, `tcp`, or `tls`. Remote relay transport stats may be unavailable; verify that transport through the other device's local verdict, not a required remote `relayProtocol` field. Both devices must still confirm the requested candidate types, application ping, and their local transport evidence before a paired pass. Missing or mismatched local evidence remains inconclusive; plain `tcp` does not prove TLS.
+- Separate relay connectivity from requested TURN access-protocol verification. Relay-only ICE with an open data channel and both peers' completed application round trips establishes usable relay connectivity. Missing selected-pair linkage or local `relayProtocol` must not discard that working channel or produce "Unable to connect" solely for missing protocol evidence. Enforced relay-only configuration and observed relay evidence remain necessary; gathering alone does not establish connectivity.
+- Each required relay side verifies its own selected local candidate's `relayProtocol`: `udp`, `tcp`, or `tls`. Report that independently as verified, unavailable, mismatch, or not tested; non-relay sides are not applicable. Remote `relayProtocol` is not required, and its absence on A does not prove B lacks local evidence. Protocol mismatch is an explicit verification failure, not proof that working application traffic failed. Never claim a fully verified requested transport when either required side cannot prove it. Candidate `protocol=udp` is compatible with TURN access over TCP/TLS; neither the URL nor that UDP field proves the TURN access hop.
 - Managed credential refresh may return a different relay host. Preserve the canonical requested alternative slot's transport and port, but use credentials only with their returned endpoint. Prefer an exact returned URL; permit only an unambiguous compatible host replacement. Log requested versus actual endpoints and retain each device's actual endpoint in shared result evidence. Incompatible refresh results must fail explicitly, not borrow credentials for an unreturned URL or silently change transport/port. Distinguish credential HTTP/timeout failures, endpoint alignment errors, and RTC setup errors without raw provider payloads or secrets.
 
 ## Required diagnostics and bounded capability checks
@@ -68,14 +69,32 @@ Build the five-category manifest from BOTH devices' sanitized endpoint capabilit
 
 Each category reports whether it worked. If Direct also passed, describe a later success as an alternative path verified, not increased connectivity. Only describe added connectivity in this run when the direct baseline explicitly failed; unsupported, inconclusive, and timed-out baselines do not establish a general connectivity improvement.
 
-Both peers must acknowledge the same server-issued category manifest before any paired probe starts. Each attempted pair uses an isolated peer connection on each device and a canonical attempt/pair/probe identity. Terminal results are shared through authorized, bounded Worker/D1 coordination so asymmetric outcomes cannot make peers independently retain a pass versus try a fallback. Late/duplicate messages cannot overwrite committed terminal evidence or resurrect cancelled work. Per-probe HTTP polling stays serialized. Signaling failures must surface as signaling failures, not credential failures or generic data-channel timeouts. Allocation, ICE checks, channel opening, and bidirectional application pings remain separate evidence; only both devices' verified selected-path results establish a paired pass.
+Both peers must acknowledge the same server-issued category manifest before any paired probe starts. Each attempted pair uses an isolated peer connection on each device and a canonical attempt/pair/probe identity. Terminal results are shared through authorized, bounded Worker/D1 coordination so asymmetric outcomes cannot make peers independently retain a pass versus try a fallback. Late/duplicate messages cannot overwrite committed terminal evidence or resurrect cancelled work. Per-probe HTTP polling stays serialized. Signaling failures must surface as signaling failures, not credential failures or generic data-channel timeouts. Allocation, ICE checks, channel opening, and bidirectional application pings remain separate evidence. Both peers must confirm connectivity; TURN protocol-verification metadata is independent and never substitutes for a completed round trip.
+
+Persist and export connectivity and protocol verification separately for each
+device and the shared result. A successful relay with incomplete stats is a
+connectivity pass with protocol verification unavailable, not inconclusive
+connectivity. Missing relay candidates, failed ICE/channel establishment or
+uncompleted application traffic remain failed/timed out. Withheld or negative
+peer confirmation must not become a pass. Legacy records without verification
+metadata must never be inferred fully protocol-verified. One-sided TURN verifies
+only its required relay side. Stop endpoint fallback after usable connectivity,
+including stats-limited passes; do not imply that untried ports were tested.
+
+Selected-pair evidence should prefer the standard transport
+`selectedCandidatePairId`, then supported explicit selected-pair evidence or an
+unambiguous succeeded+nominated pair. Missing nonstandard `selected` alone is
+not a failure. Do not choose arbitrarily among multiple eligible pairs. Retain
+missing fields as unavailable, including after bounded resampling, and explain
+missing linkage separately from missing local access-protocol stats.
 
 Probe message handlers must be installed before channel readiness can trigger
 traffic, including an already-open incoming channel. Open notifications are
 idempotent. The bounded handshake must tolerate an early challenge arriving
 before the peer is ready without accepting unrelated or stale pong/verdict
-messages. Require each side's own verified round trip plus selected-path and
-peer confirmation, not merely ICE connected. Cancellation, channel closure and
+messages. Require each side's own verified round trip plus peer confirmation and
+the applicable isolation evidence, not merely ICE connected. Missing TURN
+protocol stats are distinct from a negative connectivity verdict. Cancellation, channel closure and
 the enclosing probe deadline terminate waits and remove listeners/timers.
 
 Room coordination publishes unchanged capabilities once per participant and
@@ -183,7 +202,7 @@ Browser tests additionally verify automatically started, mandatory completed pre
 
 Browser tests: two isolated contexts using actual WebRTC connect and exchange data, automatic preflight views, a diagnostics drawer closed by default, state/timer visibility, invitation copy/join, report copy/download and matching IDs, interrupted signaling/retries, peer leave/restart, safe recheck/configuration application, performance cancel/completion/bounds, mobile layout, drawer keyboard/focus behavior, and screenshot-friendly reports containing actual results. Test bounded real throughput without requiring minimum internet speed; use deterministic fixtures for exact calculations. Browser testing is explicitly in scope.
 
-Controlled network acceptance: actual different-device/different-network connection; TURN UDP, TCP, and TLS paths independently verified using supplied test credentials; relay-only path confirmed in stats; invalid TURN credentials, unreachable server, and UDP-blocked/TLS-success case where an appropriate network environment is available. Local two-tab tests do not prove NAT traversal. Mark any unavailable transport test unverified, never passed. No TURN service is provisioned by default.
+Controlled network acceptance: actual different-device/different-network connection; TURN UDP, TCP, and TLS access protocols independently verified using supplied test credentials and sufficient selected-path stats; invalid TURN credentials, unreachable server, and UDP-blocked/TLS-success case where an appropriate network environment is available. Local two-tab tests do not prove NAT traversal. Missing protocol evidence remains unavailable, never protocol-verified, while separately established relay-only application connectivity remains passed. Synthetic relay-stat fixtures do not prove real TURN traversal. No TURN service is provisioned by default.
 
 Release acceptance: demo works; all three diagnostic phases are usable; performance results are accurately labeled; both clients and stored reports share IDs; unauthorized retrieval is denied; secrets never enter reports; checks pass; remaining external-network limitations are documented.
 

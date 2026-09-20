@@ -47,4 +47,49 @@ describe('API probe-result client', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('sends and reads camelCase result-model assessment fields', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        complete: true,
+        outcome: 'pass',
+        connectivity: 'pass',
+        protocolVerification: 'unavailable',
+        results: [
+          {
+            participant_id: 'pt_abcdefghijkl',
+            outcome: 'pass',
+            detail: 'round trip complete',
+            selected: null,
+            elapsed_ms: 4,
+            connectivity: 'pass',
+            protocolVerification: 'unavailable',
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const credentials: Credentials = {
+        roomCode: 'ABC234',
+        participantId: 'pt_abcdefghijkl',
+        writeToken: 'token-abcdefghijkl',
+      };
+      const attempt = { id: 'att_abcdefghijkl', generation: 1, manifest: [] } as IssuedAttempt;
+      const result = await new ApiClient().probeResult(credentials, attempt, 'pair-turn-udp-0', {
+        outcome: 'pass',
+        detail: 'round trip complete',
+        elapsedMs: 4,
+        connectivity: 'pass',
+        protocolVerification: 'unavailable',
+      });
+      expect(result).toMatchObject({ connectivity: 'pass', protocolVerification: 'unavailable' });
+      expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toMatchObject({
+        connectivity: 'pass',
+        protocolVerification: 'unavailable',
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

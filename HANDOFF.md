@@ -1,5 +1,87 @@
 # Copilot build handoff
 
+## Independent relay connectivity and protocol evidence - 2026-09-20
+
+The user's September 19 run analysis changes the earlier strict TURN acceptance
+rule: confirmed relay-only application connectivity stays usable even when
+requested access-protocol stats are unavailable. Connectivity and protocol
+verification are distinct in the client, peer decisions, shared persisted
+results and report presentation. Explicit protocol mismatch is not silently
+promoted to verified; actual candidate/ICE/channel/application failures remain
+failures or timeouts. Direct/STUN isolation and relay speed-traffic prohibition
+remain unchanged.
+
+The old verifier accepted succeeded+nominated pairs without a `selected` flag,
+but did not use the standard transport's `selectedCandidatePairId`. Missing
+remote `relayProtocol` is not proof that the remote device lacks its own local
+field. The exact Device B browser/field limitation cannot be established from
+the textual run analysis alone; no new raw two-sided report was supplied.
+
+Terra medium owns the bounded engine/stat/peer changes and regressions; a second
+Terra-medium lane owns the API/DB contract and tests. Root integrates UI, main
+connection retention, report surfaces, controlled browser regressions and docs.
+Both lanes completed, including scoped integration corrections. Root retained
+existing API credential/result field names, added explicit deadline conversion
+metadata, and hardened conflicting/dangling selected-link handling. No additional
+model escalation or duplicate broad review.
+
+`src/shared/probe-assessment.ts` defines separate `connectivity` and
+`protocolVerification` states and aggregation. Fully verified TURN requires all
+requested relay slots exactly once; one-sided TURN verifies only its relay
+side. Missing legacy metadata never invents verification or promotes an old
+inconclusive result. Explicit mismatch remains a usable connection with a
+verification warning, not a fully verified requested transport.
+
+`webrtc.ts` uses standard transport linkage, then unambiguous explicit selection
+or succeeded+nominated fallback. Incomplete relay fields receive bounded
+resampling. Actual relay-only configuration plus local relay evidence, channel
+opening and both application round trips establish relay connectivity even
+without selected-pair linkage. Explicit local non-relay evidence is rejected.
+Mixed Direct/STUN sides keep their own existing candidate requirements. The new
+relay-connectivity verdict separates positive traffic evidence from protocol
+metadata; absent/negative peer confirmation still cannot pass. API results carry
+each side's own protocol status to the shared decision.
+
+`probe-presentation.ts`, the drawer and `main.tsx` display connectivity separately
+from protocol verification and retain the proven channel for chat. Relay speed
+traffic remains disabled regardless of verification completeness. Requested
+versus actual provider endpoint details survive hostname rotation. Owner attempt
+reports/export additionally expose structured persisted `probeResults`; legacy
+credential-like detail/selected text is redacted on this new export surface.
+
+**Deployment migration:** apply additive `0004_probe_assessments.sql`, which adds
+nullable connectivity/protocol columns to `probe_results`. Migrations 0001-0003
+are unchanged. The production package includes byte-identical migration 0004
+under `dist/.openai/drizzle/`. Apply it before the updated Worker writes results.
+Deploy matching client/Worker artifacts, refresh BOTH clients and create a new
+room: relay verdict framing changed. Existing reports are preserved, not
+retroactively reclassified. No local deployment or external credential use.
+
+Evidence, 2026-09-20: `npm run check` passed 128 unit/integration cases plus
+formatting, strict TypeScript, lint and production builds. A 12-case targeted
+Chromium batch passed; the extended 15-case batch passed 14, including ordinary
+actual Direct/STUN data channels, chat/reports, delayed speed and authoritative
+result-response recovery. One dropped-challenge case failed waiting for initial
+room creation before its relay-independent probe started; an isolated rerun
+passed in 2.6 seconds. The cause of that startup flake was not established and no
+assertions were relaxed.
+
+The six new browser cases use real local data channels with explicitly synthetic
+relay configuration/candidate stats and mocked provider rotation, NOT real TURN:
+fully verified, Device B missing protocol, Device B missing selected linkage,
+protocol mismatch, blocked application ping, and TCP 80 with no observed local
+relay candidate. Positive cases keep both devices Connected, working chat,
+separate exported statuses and actual endpoint labels; negatives fail/time out.
+Unit cases cover UDP/TCP/TLS access evidence (including UDP relay candidates on
+TCP/TLS access), late stats, ambiguous/dangling links, mixed roles, failed setup,
+negative confirmation, partial/duplicate/legacy aggregation, immutable results,
+owner authorization and new report-field redaction.
+
+No new live TURN, different-network traversal or Codex-embedded browser
+reproduction was performed. Those remain environment-dependent; compare both
+devices' new local evidence and shared assessment after deployment rather than
+interpreting remote `relayProtocol` absence as a network failure.
+
 ## Stage-specific STUN outcomes - 2026-09-10
 
 Implementation source commit: `311dbd1269a4ee056707819ef70a6565dc977261`.

@@ -12,6 +12,8 @@ import {
   type Profile,
 } from '../shared/domain.js';
 import { ApiClient, type Credentials, type IssuedAttempt } from './api.js';
+import type { ProbeAssessment } from '../shared/probe-assessment.js';
+import { connectivityLabel, protocolVerificationLabel } from './probe-presentation.js';
 import { alignTemporaryTurnCredentials, managedTurnFailure } from './managed-turn.js';
 import { ReportBuffer, copyReport, downloadReport } from './report.js';
 import { DeviceCheckController, type DeviceCheckSnapshot } from './device-checks.js';
@@ -46,16 +48,17 @@ function configuredIce(managed: IceConfig, customText: string): IceConfig {
   });
 }
 
-type MatrixPair = Profile & {
-  outcome: string;
-  detail: string;
-  attemptStatus: 'not-tried' | 'running' | 'terminal';
-  selected?: string;
-  activeMs: number;
-  queuedMs?: number;
-  deadlineAt?: number;
-};
-type MatrixRow = {
+type MatrixPair = Profile &
+  Partial<ProbeAssessment> & {
+    outcome: string;
+    detail: string;
+    attemptStatus: 'not-tried' | 'running' | 'terminal';
+    selected?: string;
+    activeMs: number;
+    queuedMs?: number;
+    deadlineAt?: number;
+  };
+type MatrixRow = Partial<ProbeAssessment> & {
   id: string;
   label: string;
   tier: number;
@@ -868,12 +871,17 @@ function App() {
         rows.map((row) => {
           if (row.id !== result.id) return row;
           const pass = result.pairs.find((pair) => pair.outcome === 'pass');
+          const assessment = pass ?? result.pairs.at(-1);
           return {
             ...row,
             status: 'terminal',
             outcome: result.outcome,
             detail: pass?.detail ?? result.pairs.at(-1)?.detail ?? row.detail,
             selected: pass?.selected,
+            ...(assessment?.connectivity ? { connectivity: assessment.connectivity } : {}),
+            ...(assessment?.protocolVerification
+              ? { protocolVerification: assessment.protocolVerification }
+              : {}),
             activeMs: result.activeMs,
             pairs: row.pairs.map((pair) => {
               const completed = result.pairs.find((value) => value.id === pair.id);
@@ -1050,6 +1058,7 @@ function App() {
           local = {
             ...local,
             outcome: 'timeout',
+            connectivity: 'timeout',
             detail: `local probe deadline reached before synchronization; ${local.detail}`,
           };
         if (actualEndpoint)
@@ -1068,6 +1077,10 @@ function App() {
               {
                 outcome: local.outcome,
                 detail: local.detail,
+                ...(local.connectivity ? { connectivity: local.connectivity } : {}),
+                ...(local.protocolVerification
+                  ? { protocolVerification: local.protocolVerification }
+                  : {}),
                 ...(local.selected ? { selected: local.selected } : {}),
                 elapsedMs: Math.max(0, Math.min(30_000, Math.round(local.elapsedMs))),
               },
@@ -1141,6 +1154,10 @@ function App() {
         const terminal = {
           outcome,
           detail: shared.complete ? evidence : 'peer terminal result deadline exceeded',
+          ...(shared.connectivity ? { connectivity: shared.connectivity } : {}),
+          ...(shared.protocolVerification
+            ? { protocolVerification: shared.protocolVerification }
+            : {}),
           ...(local.selected ? { selected: local.selected } : {}),
           activeMs: Math.round(window.performance.now() - startedAt),
           ...(!shared.complete ? { stopCategory: true } : {}),
@@ -1160,7 +1177,15 @@ function App() {
           ),
         );
         record(
-          `${category.label} alternative ${alternativeIndex + 1}: ${outcome} (${terminal.detail})`,
+          `${category.label} alternative ${alternativeIndex + 1}: ${outcome}${
+            terminal.connectivity
+              ? `; ${connectivityLabel(terminal.connectivity, profileUsesTurn(profile))}`
+              : ''
+          }${
+            terminal.protocolVerification && terminal.protocolVerification !== 'not-applicable'
+              ? `; ${protocolVerificationLabel(terminal.protocolVerification)}`
+              : ''
+          } (${terminal.detail})`,
           outcome === 'pass' ? 'success' : outcome === 'timeout' ? 'timeout' : 'info',
         );
         return terminal;
@@ -1184,14 +1209,14 @@ function App() {
     } else if (!selectedConnection) {
       setMain('Unable to connect');
       setError(
-        'No verified connection path was available. Recheck the device or ask the other device to retry.',
+        'No usable connection was confirmed by both devices. Recheck the device or ask the other device to retry.',
       );
-      setPerformance('Not run: no verified connection');
+      setPerformance('Not run: no confirmed connection');
     }
     record(
       selectedConnection
         ? 'bounded capability diagnostics complete'
-        : 'bounded capability diagnostics completed without a verified path',
+        : 'bounded capability diagnostics completed without a confirmed connection',
       selectedConnection ? 'success' : 'failure',
     );
   }
@@ -1565,6 +1590,7 @@ function App() {
               : []),
           ],
   };
+  const successfulPair = matrix.flatMap((row) => row.pairs).find((pair) => pair.outcome === 'pass');
   const diagnosticsModel: DiagnosticsViewModel = {
     headline: deviceChecks.phase === 'complete' ? 'Checks complete' : 'Checking this device',
     progress: `${deviceChecks.progress.completed} of ${deviceChecks.progress.total} device checks; ${matrix.length ? `${counts.terminal ?? 0} of ${matrix.length} capability checks complete` : 'connection checks wait for a peer'}`,
@@ -1575,8 +1601,10 @@ function App() {
       coverage: `${deviceChecks.results.length} device checks, ${matrix.length} capability checks`,
       outcome: surfaceStatus,
       path:
-        matrix.flatMap((row) => row.pairs).find((pair) => pair.outcome === 'pass')?.selected ??
-        'No selected path yet',
+        successfulPair?.selected ??
+        (successfulPair
+          ? 'Connected; selected-pair statistics unavailable (see pair details)'
+          : 'No selected path yet'),
       measurements: performanceDirections.length
         ? `${performanceDirections.length} direction measurements`
         : 'Not measured',
@@ -1586,11 +1614,20 @@ function App() {
           .filter(
             (row) =>
               row.outcome &&
-              row.outcome !== 'pass' &&
+              (row.outcome !== 'pass' ||
+                row.protocolVerification === 'unavailable' ||
+                row.protocolVerification === 'mismatch') &&
               row.outcome !== 'queued' &&
               row.outcome !== 'running',
           )
-          .map((row) => `${row.label}: ${row.detail ?? row.outcome}`),
+          .map(
+            (row) =>
+              `${row.label}: ${
+                row.protocolVerification && row.protocolVerification !== 'not-applicable'
+                  ? `${protocolVerificationLabel(row.protocolVerification)}; `
+                  : ''
+              }${row.detail ?? row.outcome}`,
+          ),
       ],
     },
     advancedSettings: {
@@ -1653,15 +1690,19 @@ function App() {
           outcome: row.outcome ?? 'queued',
           queued: `${row.queuedMs ?? 0} ms`,
           active: `${row.activeMs ?? 0} ms`,
+          ...(row.connectivity ? { connectivity: row.connectivity } : {}),
+          ...(row.protocolVerification ? { protocolVerification: row.protocolVerification } : {}),
           evidence:
             row.outcome === 'pass'
-              ? row.id === 'direct'
-                ? 'Local candidates connected without STUN or TURN.'
-                : matrix.find((category) => category.id === 'direct')?.outcome === 'pass'
-                  ? 'Alternative path verified; the direct path also worked.'
-                  : matrix.find((category) => category.id === 'direct')?.outcome === 'failure'
-                    ? 'Connected where the direct check failed in this run.'
-                    : 'Path verified; improvement over the direct path is not established.'
+              ? row.id.startsWith('turn-')
+                ? 'Relay-only data channel and bidirectional application traffic succeeded.'
+                : row.id === 'direct'
+                  ? 'Local candidates connected without STUN or TURN.'
+                  : matrix.find((category) => category.id === 'direct')?.outcome === 'pass'
+                    ? 'Alternative path verified; the direct path also worked.'
+                    : matrix.find((category) => category.id === 'direct')?.outcome === 'failure'
+                      ? 'Connected where the direct check failed in this run.'
+                      : 'Path verified; improvement over the direct path is not established.'
               : row.outcome === 'not-configured'
                 ? 'Not configured on either device.'
                 : (row.detail ?? 'Waiting to run.'),
@@ -1677,6 +1718,10 @@ function App() {
             evidence: [pair.selected, pair.detail].filter(Boolean).join(' · '),
             queued: `${pair.queuedMs ?? 0} ms`,
             active: `${pair.activeMs} ms`,
+            ...(pair.connectivity ? { connectivity: pair.connectivity } : {}),
+            ...(pair.protocolVerification
+              ? { protocolVerification: pair.protocolVerification }
+              : {}),
           })),
         })),
       },

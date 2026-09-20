@@ -32,6 +32,23 @@ const categories: DiagnosticCategory[] = [
 ];
 
 describe('bounded capability scheduler', () => {
+  it('retains usable connectivity with unavailable protocol stats without extra fallback', async () => {
+    const tried: string[] = [];
+    const results = await scheduleCapabilityCategories(categories, (_category, pair) => {
+      tried.push(pair.id);
+      return Promise.resolve({
+        outcome: 'pass',
+        connectivity: 'pass',
+        protocolVerification: 'unavailable',
+        detail: 'relay connectivity passed; protocol verification unavailable',
+        activeMs: 1,
+      });
+    });
+    expect(tried).toEqual(['pair-turn-udp-0']);
+    expect(results[0]?.outcome).toBe('pass');
+    expect(results[0]?.pairs[0]?.protocolVerification).toBe('unavailable');
+    expect(results[1]?.outcome).toBe('not-configured');
+  });
   it('tries fallback only after the first pair does not pass', async () => {
     const tried: string[] = [];
     const result = await scheduleCapabilityCategories(categories, (_category, pair) => {

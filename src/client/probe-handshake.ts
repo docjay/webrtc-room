@@ -41,9 +41,17 @@ export class ProbeHandshake {
       this.send(`probe-pong:${ping[1]}`);
     } else if (data === `probe-pong:${this.nonce}`) {
       this.finishPong?.(true);
-    } else if (data === 'probe-verdict:pass' || data === 'probe-verdict:inconclusive') {
+    } else if (
+      data === 'probe-verdict:pass' ||
+      data === 'probe-verdict:inconclusive' ||
+      data === 'probe-relay-connectivity:pass' ||
+      data === 'probe-relay-connectivity:failure'
+    ) {
       if (this.peerVerdict !== undefined) return;
-      this.peerVerdict = data === 'probe-verdict:pass' ? 'pass' : 'inconclusive';
+      this.peerVerdict =
+        data === 'probe-verdict:pass' || data === 'probe-relay-connectivity:pass'
+          ? 'pass'
+          : 'inconclusive';
       this.trace(`peer verdict received=${this.peerVerdict}`);
       this.finishVerdict?.(this.peerVerdict);
     }
@@ -79,7 +87,7 @@ export class ProbeHandshake {
     return this.pong;
   }
 
-  confirm(localPass: boolean): Promise<Verdict> {
+  confirm(localPass: boolean, relayConnectivity = false): Promise<Verdict> {
     if (this.verdict) return this.verdict;
     this.verdict = new Promise<Verdict>((resolve) => {
       if (this.stopped || this.channel.readyState !== 'open') {
@@ -93,8 +101,10 @@ export class ProbeHandshake {
         resolve(value);
       };
       this.verdictTimer = setTimeout(() => this.finishVerdict?.('timeout'), 3_000);
-      this.trace(`local verdict sent=${localPass ? 'pass' : 'inconclusive'}`);
-      this.send(`probe-verdict:${localPass ? 'pass' : 'inconclusive'}`);
+      const verdict = localPass ? 'pass' : relayConnectivity ? 'failure' : 'inconclusive';
+      const frame = relayConnectivity ? 'probe-relay-connectivity' : 'probe-verdict';
+      this.trace(`local verdict sent=${verdict}`);
+      this.send(`${frame}:${verdict}`);
       if (this.peerVerdict !== undefined) this.finishVerdict?.(this.peerVerdict);
     });
     return this.verdict;

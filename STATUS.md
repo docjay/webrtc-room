@@ -1,5 +1,48 @@
 # Status - room-first UX redesign implemented
 
+## Current milestone - relay connectivity versus protocol evidence, 2026-09-20
+
+- User-approved scope change: keep a working, bilaterally confirmed relay-only
+  connection usable when browser stats cannot verify the requested TURN access
+  protocol. Record connectivity and protocol verification separately, including
+  explicit mismatch, rather than presenting missing evidence as inability to connect.
+- Terra medium owns engine/peer-verdict/selected-stat compatibility and focused
+  regressions. A second Terra-medium lane owns API, additive D1 persistence,
+  aggregation and authorization coverage. Root owns UI/selection/report wiring,
+  browser integration and handoff. No additional model escalation.
+- Current investigation distinguishes an absent nonstandard `selected` field
+  from absent standard transport linkage. A's missing remote `relayProtocol`
+  alone cannot establish whether B has local evidence. No raw September 19
+  two-sided report was attached to this request; browser-specific attribution
+  remains unproven.
+- Implemented explicit connectivity/protocol fields through peer decisions,
+  API aggregation, additive migration `0004_probe_assessments.sql`, owner
+  reports/exports, retained channels, cards, pair details and local reports.
+  Both-side connectivity pass stays usable with unavailable or mismatched
+  protocol evidence; only sufficient required-side evidence is protocol-verified.
+  Direct/STUN isolation, negative peer confirmation and TURN speed prohibition
+  remain intact. Existing credential/result field names remain compatible.
+- Selected-pair lookup now prefers standard transport linkage and accepts an
+  unambiguous nominated/succeeded fallback without requiring `selected`.
+  Missing details are resampled briefly; dangling/conflicting links never
+  select another arbitrary pair. Logs distinguish missing linkage from missing
+  local relay access-protocol evidence.
+- `npm run check` passed 128 cases, formatting/type/lint and production builds.
+  All six controlled relay browser cases passed: fully verified, missing local
+  protocol, missing linkage, explicit mismatch, dropped application challenge,
+  and TCP 80 with no local relay candidate. Positive cases retain working chat
+  and actual rotated-host evidence; negatives remain failed/timed out.
+- The 15-case targeted browser batch passed 14 cases, including ordinary actual
+  Direct/STUN RTC/chat/report and shared-result recovery. One early room-creation
+  wait failed before any relay work; its isolated rerun passed. The earlier
+  12-case targeted batch passed completely. No assertion was weakened.
+  Relay fixtures use actual local data channels with synthetic relay settings/
+  stats and mocked provider replies, not live TURN traversal or external access
+  protocol proof. No deployment, credential use or service provisioning.
+- Ready for Codex: apply migration 0004, deploy matching artifacts, refresh both
+  tabs and create a new room. Relay connectivity verdict framing changed.
+  Historical inconclusive reports are not retroactively promoted to passes.
+
 ## Current milestone - stage-specific STUN outcomes, 2026-09-10
 
 - The user requested clearer wording after a report showed successful STUN

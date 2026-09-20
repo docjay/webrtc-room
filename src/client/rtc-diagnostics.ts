@@ -327,6 +327,26 @@ export class PairedRtcDiagnostics {
     this.emit('failure', 'failure', `stats unavailable name=${safeErrorName(error)}`);
   }
 
+  selectedPairEvidence(
+    evidence: 'transport-link' | 'selected-flag' | 'nominated-fallback' | 'missing-linkage',
+  ) {
+    const message =
+      evidence === 'missing-linkage'
+        ? 'selected-pair linkage unavailable; retaining relay-gathering evidence separately'
+        : `selected-pair evidence=${evidence}`;
+    this.emit('stats', 'info', message);
+  }
+
+  localRelayProtocolEvidence(protocol: string) {
+    this.emit(
+      'stats',
+      'info',
+      protocol === 'unavailable'
+        ? 'local relay access-protocol evidence unavailable'
+        : `local relay access-protocol=${safeValue(protocol, ['udp', 'tcp', 'tls'])}`,
+    );
+  }
+
   private noteTruncation() {
     if (this.stopped || this.truncated) return;
     this.truncated = true;

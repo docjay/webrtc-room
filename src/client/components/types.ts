@@ -75,7 +75,7 @@ export interface DiagnosticCheck {
   detail?: string;
 }
 
-export interface DiagnosticMatrixRow {
+export interface DiagnosticMatrixRow extends Partial<ProbeAssessment> {
   id: string;
   profile: string;
   outcome: string;
@@ -89,6 +89,8 @@ export interface DiagnosticMatrixRow {
     evidence: string;
     queued: string;
     active: string;
+    connectivity?: ProbeAssessment['connectivity'];
+    protocolVerification?: ProbeAssessment['protocolVerification'];
   }[];
 }
 
@@ -161,3 +163,4 @@ export interface DiagnosticsCallbacks {
   onCancelPerformance?: () => void;
 }
 import type { ReactNode } from 'react';
+import type { ProbeAssessment } from '../../shared/probe-assessment.js';

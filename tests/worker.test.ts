@@ -1,17 +1,35 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
+import { z } from 'zod';
 import { createWorker, type Env } from '../src/server/worker.js';
 import { sqliteD1 } from './sqlite-d1.js';
 import { ReportBuffer } from '../src/client/report.js';
 
 const schema = (
   await Promise.all(
-    ['0001_initial.sql', '0002_integrity_and_quotas.sql', '0003_probe_results.sql'].map((name) =>
-      readFile(new URL(`../src/server/migrations/${name}`, import.meta.url), 'utf8'),
-    ),
+    [
+      '0001_initial.sql',
+      '0002_integrity_and_quotas.sql',
+      '0003_probe_results.sql',
+      '0004_probe_assessments.sql',
+    ].map((name) => readFile(new URL(`../src/server/migrations/${name}`, import.meta.url), 'utf8')),
   )
 ).join('\n');
 const context = { waitUntil: (promise: Promise<unknown>) => void promise.catch(() => undefined) };
+const ownerProbeResultSchema = z.object({
+  participantId: z.string(),
+  connectivity: z.enum(['pass', 'failure', 'timeout', 'unconfirmed']).nullable(),
+  protocolVerification: z
+    .enum(['verified', 'unavailable', 'mismatch', 'not-tested', 'not-applicable'])
+    .nullable(),
+  detail: z.string(),
+  selected: z.string().nullable(),
+});
+const ownerAttemptReportSchema = z.object({
+  id: z.string(),
+  probeResults: z.array(ownerProbeResultSchema),
+});
+const ownerExportSchema = z.object({ attempts: z.array(ownerAttemptReportSchema) });
 
 async function fixture(env: Omit<Partial<Env>, 'DB'> = {}) {
   const DB = await sqliteD1(schema);
@@ -241,6 +259,20 @@ describe('worker room integration', () => {
         await request(path, {
           method: 'POST',
           headers: auth(host),
+          body: JSON.stringify({
+            outcome: 'pass',
+            connectivity: 'failure',
+            detail: 'contradictory result',
+            elapsedMs: 1,
+          }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await request(path, {
+          method: 'POST',
+          headers: auth(host),
           body: JSON.stringify({ outcome: 'pass', detail: 'ok', elapsedMs: 30_001 }),
         })
       ).status,
@@ -278,9 +310,21 @@ describe('worker room integration', () => {
     ).json()) as unknown as {
       complete: boolean;
       outcome: string;
-      results: Array<{ participant_id: string; outcome: string }>;
+      connectivity: string;
+      protocolVerification: string;
+      results: Array<{
+        participant_id: string;
+        outcome: string;
+        connectivity: string;
+        protocolVerification: string;
+      }>;
     };
-    expect(shared).toMatchObject({ complete: true, outcome: 'timeout' });
+    expect(shared).toMatchObject({
+      complete: true,
+      outcome: 'timeout',
+      connectivity: 'timeout',
+      protocolVerification: 'not-applicable',
+    });
     expect(shared.results).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -302,6 +346,72 @@ describe('worker room integration', () => {
     });
     expect(retry.status).toBe(201);
     expect((await request(path, { headers: auth(host) })).status).toBe(409);
+  });
+
+  it('includes persisted assessment evidence in owner attempt reports and exports', async () => {
+    const { request } = await fixture({ ENVIRONMENT: 'development', OWNER_ID: 'owner' });
+    const { host, guest, auth } = await credentials(request);
+    for (const peer of [host, guest]) {
+      await request(`/api/rooms/${host.roomCode}/capabilities`, {
+        method: 'POST',
+        headers: auth(peer),
+        body: JSON.stringify({ endpoints: [] }),
+      });
+    }
+    const attempt = (await (
+      await request(`/api/rooms/${host.roomCode}/attempts`, {
+        method: 'POST',
+        headers: auth(host),
+        body: '{}',
+      })
+    ).json()) as { id: string; manifest: Array<Record<string, unknown>> };
+    for (const peer of [host, guest]) {
+      await request(`/api/rooms/${host.roomCode}/attempts/${attempt.id}/ack`, {
+        method: 'POST',
+        headers: auth(peer),
+        body: JSON.stringify({ manifest: attempt.manifest }),
+      });
+    }
+    const path = `/api/rooms/${host.roomCode}/attempts/${attempt.id}/probes/pair-direct-0`;
+    await request(path, {
+      method: 'POST',
+      headers: auth(host),
+      body: JSON.stringify({
+        outcome: 'pass',
+        detail: 'host round trip credential=should-not-export 192.0.2.10',
+        selected: 'relay.example.test token=should-not-export 198.51.100.8',
+        elapsedMs: 1,
+        connectivity: 'pass',
+        protocolVerification: 'not-applicable',
+      }),
+    });
+    await request(path, {
+      method: 'POST',
+      headers: auth(guest),
+      body: JSON.stringify({
+        outcome: 'pass',
+        detail: 'guest round trip',
+        elapsedMs: 1,
+        connectivity: 'pass',
+        protocolVerification: 'not-applicable',
+      }),
+    });
+    const owner = { 'x-dev-identity': 'owner' };
+    const report = ownerAttemptReportSchema.parse(
+      await (await request(`/api/admin/attempts/${attempt.id}`, { headers: owner })).json(),
+    );
+    const hostResult = report.probeResults.find(
+      (result) => result.participantId === host.participantId,
+    );
+    expect(hostResult?.connectivity).toBe('pass');
+    expect(hostResult?.protocolVerification).toBe('not-applicable');
+    expect(hostResult?.detail).toContain('192.0.2.10');
+    expect(hostResult?.selected).toContain('198.51.100.8');
+    expect(`${hostResult?.detail} ${hostResult?.selected}`).not.toContain('should-not-export');
+    const exported = ownerExportSchema.parse(
+      await (await request('/api/admin/export', { headers: owner })).json(),
+    );
+    expect(exported.attempts.some((item) => item.id === attempt.id)).toBe(true);
   });
 
   it('distinguishes invalid capability payloads from missing room authorization', async () => {

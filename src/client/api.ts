@@ -9,6 +9,12 @@ import {
 } from '../shared/domain.js';
 import type { DiagnosticEvent, IceConfig } from '../shared/domain.js';
 import type { DiagnosticCategory } from '../shared/domain.js';
+import {
+  connectivitySchema,
+  protocolVerificationSchema,
+  type ConnectivityOutcome,
+  type ProtocolVerification,
+} from '../shared/probe-assessment.js';
 
 const credentialsSchema = z
   .object({
@@ -220,6 +226,8 @@ export class ApiClient {
       detail: string;
       selected?: string;
       elapsedMs: number;
+      connectivity?: ConnectivityOutcome;
+      protocolVerification?: ProtocolVerification;
     },
     signal?: AbortSignal,
   ) {
@@ -234,6 +242,8 @@ export class ApiClient {
         outcome: z
           .enum(['pass', 'inconclusive', 'timeout', 'unsupported', 'cancelled', 'failure'])
           .optional(),
+        connectivity: connectivitySchema.optional(),
+        protocolVerification: protocolVerificationSchema.optional(),
         results: z.array(
           z.object({
             participant_id: participantIdSchema,
@@ -241,6 +251,8 @@ export class ApiClient {
             detail: z.string(),
             selected: z.string().nullable(),
             elapsed_ms: z.number(),
+            connectivity: connectivitySchema.optional(),
+            protocolVerification: protocolVerificationSchema.optional(),
           }),
         ),
       }),

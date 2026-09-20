@@ -74,6 +74,35 @@ describe('bounded bilateral probe handshake', () => {
     protocol.dispose();
   });
 
+  it('uses an explicit relay-connectivity verdict without treating protocol metadata as connectivity', async () => {
+    const a = new Channel();
+    const b = new Channel();
+    a.peer = b;
+    b.peer = a;
+    const left = new ProbeHandshake(a, () => undefined);
+    const right = new ProbeHandshake(b, () => undefined);
+    try {
+      await expect(
+        Promise.all([left.confirm(true, true), right.confirm(true, true)]),
+      ).resolves.toEqual(['pass', 'pass']);
+      expect(a.sent).toContain('probe-relay-connectivity:pass');
+      expect(b.sent).toContain('probe-relay-connectivity:pass');
+    } finally {
+      left.dispose();
+      right.dispose();
+    }
+  });
+
+  it('does not turn an explicit negative relay-connectivity verdict into pass', async () => {
+    const channel = new Channel();
+    const protocol = new ProbeHandshake(channel, () => undefined);
+    channel.dispatchEvent(
+      new MessageEvent('message', { data: 'probe-relay-connectivity:failure' }),
+    );
+    await expect(protocol.confirm(true, true)).resolves.toBe('inconclusive');
+    protocol.dispose();
+  });
+
   it('surfaces send failures and clears pending work', async () => {
     vi.useFakeTimers();
     const channel = new Channel();

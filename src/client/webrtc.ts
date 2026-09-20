@@ -3,6 +3,7 @@ import { PairedRtcDiagnostics, type DiagnosticCallback } from './rtc-diagnostics
 import { ProbeHandshake } from './probe-handshake.js';
 import { normalizeRtcIceCandidate, type CandidateEvidence } from '../shared/normalization.js';
 import { sanitizeIceConfig, type IceConfig, type Profile } from '../shared/domain.js';
+import type { ConnectivityOutcome, ProtocolVerification } from '../shared/probe-assessment.js';
 
 export type ProbeResult = {
   outcome: 'success' | 'failure' | 'timeout' | 'cancelled';
@@ -19,6 +20,10 @@ export type ProbeIceOptions = {
 };
 export type ProbeTerminal = {
   outcome: 'pass' | 'inconclusive' | 'timeout' | 'unsupported' | 'cancelled' | 'failure';
+  /** Optional at the API boundary while every engine-created terminal populates it. */
+  connectivity?: ConnectivityOutcome;
+  /** Optional at the API boundary while every engine-created terminal populates it. */
+  protocolVerification?: ProtocolVerification;
   detail: string;
   elapsedMs: number;
   selected?: string;
@@ -211,53 +216,91 @@ export type PairEvidence = {
   localRelayProtocol: string;
   remoteRelayProtocol: string;
 };
-async function selectedPair(
+export type SelectedPairEvidence = {
+  pair?: PairEvidence;
+  source: 'transport-link' | 'selected-flag' | 'nominated-fallback' | 'missing-linkage';
+};
+
+function pairEvidence(stats: RTCStatsReport, report: Record<string, unknown>): PairEvidence {
+  const candidate = (id: unknown) =>
+    typeof id === 'string'
+      ? (stats.get(id) as unknown as Record<string, unknown> | undefined)
+      : undefined;
+  const local = candidate(report.localCandidateId);
+  const remote = candidate(report.remoteCandidateId);
+  return {
+    localType: typeof local?.candidateType === 'string' ? local.candidateType : 'unavailable',
+    remoteType: typeof remote?.candidateType === 'string' ? remote.candidateType : 'unavailable',
+    localProtocol: typeof local?.protocol === 'string' ? local.protocol : 'unavailable',
+    remoteProtocol: typeof remote?.protocol === 'string' ? remote.protocol : 'unavailable',
+    localRelayProtocol:
+      typeof local?.relayProtocol === 'string' ? local.relayProtocol : 'unavailable',
+    remoteRelayProtocol:
+      typeof remote?.relayProtocol === 'string' ? remote.relayProtocol : 'unavailable',
+  };
+}
+
+/** Select only browser-linked or unambiguous succeeded+nominated pairs. */
+export function extractSelectedPair(stats: RTCStatsReport): SelectedPairEvidence {
+  const pairs = [...stats.entries()]
+    .map(([key, raw]) => ({ raw: raw as Record<string, unknown>, key }))
+    .filter(({ raw }) => raw.type === 'candidate-pair');
+  const idOf = ({ raw, key }: (typeof pairs)[number]) =>
+    typeof raw.id === 'string' ? raw.id : key;
+  const transports = [...stats.values()]
+    .map((raw) => raw as unknown as Record<string, unknown>)
+    .filter((raw) => raw.type === 'transport' && typeof raw.selectedCandidatePairId === 'string');
+  const transportIds = new Set(transports.map((transport) => transport.selectedCandidatePairId));
+  if (transportIds.size > 1) return { source: 'missing-linkage' };
+  if (transportIds.size === 1) {
+    const selectedId = [...transportIds][0]!;
+    const match = pairs.find(({ raw, key }) => idOf({ raw, key }) === selectedId);
+    if (match) return { pair: pairEvidence(stats, match.raw), source: 'transport-link' };
+    return { source: 'missing-linkage' };
+  }
+  const selected = pairs.filter(({ raw }) => raw.selected === true);
+  if (selected.length === 1)
+    return { pair: pairEvidence(stats, selected[0]!.raw), source: 'selected-flag' };
+  if (selected.length > 1) return { source: 'missing-linkage' };
+  const nominated = pairs.filter(({ raw }) => raw.nominated === true && raw.state === 'succeeded');
+  if (nominated.length === 1)
+    return { pair: pairEvidence(stats, nominated[0]!.raw), source: 'nominated-fallback' };
+  return { source: 'missing-linkage' };
+}
+
+export async function selectedPair(
   pc: RTCPeerConnection,
   diagnostics?: PairedRtcDiagnostics,
-): Promise<PairEvidence | undefined> {
+  waitForLocalRelayDetails = false,
+): Promise<SelectedPairEvidence> {
   // Candidate-pair stats can appear shortly after a channel opens. Sampling
   // avoids one peer discarding an otherwise matching connection prematurely.
+  let incomplete: SelectedPairEvidence | undefined;
   for (let sample = 0; sample < 10; sample++) {
     let stats: RTCStatsReport;
     try {
       stats = await pc.getStats();
     } catch (error) {
       diagnostics?.statsUnavailable(error);
-      return undefined;
+      return { source: 'missing-linkage' };
     }
     diagnostics?.reportStats(stats);
-    for (const raw of stats.values()) {
-      const report = raw as unknown as Record<string, unknown>;
-      if (
-        report.type === 'candidate-pair' &&
-        report.nominated === true &&
-        (report.selected === true || report.state === 'succeeded')
-      ) {
-        const local =
-          typeof report.localCandidateId === 'string'
-            ? (stats.get(report.localCandidateId) as unknown as Record<string, unknown> | undefined)
-            : undefined;
-        const remote =
-          typeof report.remoteCandidateId === 'string'
-            ? (stats.get(report.remoteCandidateId) as unknown as
-                Record<string, unknown> | undefined)
-            : undefined;
-        return {
-          localType: typeof local?.candidateType === 'string' ? local.candidateType : 'unavailable',
-          remoteType:
-            typeof remote?.candidateType === 'string' ? remote.candidateType : 'unavailable',
-          localProtocol: typeof local?.protocol === 'string' ? local.protocol : 'unavailable',
-          remoteProtocol: typeof remote?.protocol === 'string' ? remote.protocol : 'unavailable',
-          localRelayProtocol:
-            typeof local?.relayProtocol === 'string' ? local.relayProtocol : 'unavailable',
-          remoteRelayProtocol:
-            typeof remote?.relayProtocol === 'string' ? remote.relayProtocol : 'unavailable',
-        };
+    const selected = extractSelectedPair(stats);
+    if (selected.pair) {
+      const localDetailsReady =
+        selected.pair.localType !== 'unavailable' &&
+        selected.pair.localRelayProtocol !== 'unavailable';
+      if (!waitForLocalRelayDetails || localDetailsReady) {
+        diagnostics?.selectedPairEvidence(selected.source);
+        return selected;
       }
+      incomplete = selected;
     }
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
+    await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 100));
   }
-  return undefined;
+  const result = incomplete ?? { source: 'missing-linkage' };
+  diagnostics?.selectedPairEvidence(result.source);
+  return result;
 }
 export function candidatePolicy(
   profile: Profile,
@@ -273,15 +316,7 @@ export function candidatePolicy(
   const relayRequested = requested.map((endpoint) => endpoint.startsWith('turn-'));
   for (let index = 0; index < 2; index++) {
     if (!relayRequested[index]) continue;
-    const transport = requested[index]!.split('-')[1];
     if (types[index] !== 'relay') return 'selected pair did not prove requested relay on this side';
-    // The remote relay protocol is not exposed by all browsers. The remote
-    // peer validates its own local relay protocol before confirming its verdict.
-    if (index === 1) continue;
-    if (selected.localRelayProtocol === 'unavailable')
-      return 'selected pair relay protocol evidence unavailable';
-    if (selected.localRelayProtocol !== transport)
-      return 'selected pair relay protocol did not match requested endpoint';
   }
   if (!relayRequested.some(Boolean) && types.includes('relay'))
     return 'selected pair did not prove direct path';
@@ -300,6 +335,80 @@ export function candidatePolicy(
       : 'selected pair did not expose the requested STUN mapped-candidate evidence';
   }
   return undefined;
+}
+
+function requestedRelay(profile: Profile, host: boolean) {
+  return (host ? profile.a : profile.b).startsWith('turn-');
+}
+
+export function relayConnectivityPolicy(
+  profile: Profile,
+  selected: PairEvidence | undefined,
+  host: boolean,
+  localRelayGathered: boolean,
+  relayOnlyConfigured: boolean,
+) {
+  const requested = host ? [profile.a, profile.b] : [profile.b, profile.a];
+  const localRequested = requested[0]!;
+  if (!localRequested.startsWith('turn-')) {
+    if (!selected) return 'selected pair stats unavailable';
+    if (localRequested === 'direct-udp') {
+      if (selected.localType !== 'host')
+        return 'selected pair did not prove requested direct path on this side';
+      return selected.localProtocol === 'udp'
+        ? undefined
+        : 'selected pair protocol did not prove requested direct UDP path';
+    }
+    if (localRequested.startsWith('stun-')) {
+      if (selected.localProtocol !== 'udp')
+        return 'selected pair protocol did not prove requested direct UDP path';
+      return selected.localType === 'srflx' || selected.localType === 'prflx'
+        ? undefined
+        : selected.localType === 'host'
+          ? 'browser selected a local host candidate on the STUN-requesting side; standard APIs cannot force a mapped candidate'
+          : 'selected pair did not expose the requested STUN mapped-candidate evidence';
+    }
+    return candidatePolicy(profile, selected, host);
+  }
+  if (!relayOnlyConfigured) return 'relay-only ICE policy was not configured on this side';
+  if (!selected)
+    return !localRelayGathered
+      ? 'no local TURN relay candidate was observed before application verification'
+      : undefined;
+  if (selected.localType === 'relay') return undefined;
+  if (selected.localType === 'unavailable' && localRelayGathered) return undefined;
+  return selected.localType === 'unavailable'
+    ? 'no local TURN relay candidate was observed before application verification'
+    : 'selected pair did not prove requested relay on this side';
+}
+
+export function localProtocolVerification(
+  profile: Profile,
+  selected: PairEvidence | undefined,
+  host: boolean,
+): ProtocolVerification {
+  if (!requestedRelay(profile, host)) return 'not-applicable';
+  if (!selected || selected.localType !== 'relay') return 'unavailable';
+  const requested = (host ? profile.a : profile.b).split('-')[1];
+  if (selected.localRelayProtocol === 'unavailable') return 'unavailable';
+  return selected.localRelayProtocol === requested ? 'verified' : 'mismatch';
+}
+
+function assessmentForTerminal(
+  outcome: ProbeTerminal['outcome'],
+  relayRequested: boolean,
+): Pick<ProbeTerminal, 'connectivity' | 'protocolVerification'> {
+  return {
+    connectivity:
+      outcome === 'pass'
+        ? 'pass'
+        : outcome === 'failure'
+          ? 'failure'
+          : outcome === 'timeout'
+            ? 'timeout'
+            : 'unconfirmed',
+    protocolVerification: relayRequested ? 'not-tested' : 'not-applicable',
+  };
 }
 function describePair(pair: PairEvidence) {
   return `${pair.localType}/${pair.localProtocol}/${pair.localRelayProtocol} → ${pair.remoteType}/${pair.remoteProtocol}/${pair.remoteRelayProtocol}`;
@@ -345,12 +454,26 @@ export async function runPairedProbe(args: {
     diagnostics.emit('summary', 'info', 'probe terminal=unsupported; browser cannot force ICE-TCP');
     return {
       outcome: 'unsupported',
+      ...assessmentForTerminal('unsupported', requestedRelay(profile, host)),
       detail: 'Standard WebRTC does not expose candidate-pair or ICE-TCP forcing.',
       elapsedMs: 0,
       close: () => undefined,
     };
   }
-  const pc = new RTCPeerConnection(requestedServers(profile, host ? 'a' : 'b', config));
+  let pc: RTCPeerConnection;
+  const rtcConfiguration = requestedServers(profile, host ? 'a' : 'b', config);
+  try {
+    pc = new RTCPeerConnection(rtcConfiguration);
+  } catch {
+    diagnostics.emit('failure', 'failure', 'RTCPeerConnection setup failed before probe start');
+    return {
+      outcome: 'failure',
+      ...assessmentForTerminal('failure', requestedRelay(profile, host)),
+      detail: 'RTCPeerConnection setup failed before probe start',
+      elapsedMs: performance.now() - start,
+      close: () => undefined,
+    };
+  }
   let cursor = 0,
     remoteChannel: RTCDataChannel | undefined,
     channel: RTCDataChannel | undefined,
@@ -419,9 +542,15 @@ export async function runPairedProbe(args: {
       ...(capturedFailureEvidence ?? captureFailureEvidence()),
       timedOut: outcome === 'timeout',
     });
-  const finish = (result: ProbeTerminal) => {
+  const finish = (
+    result: Omit<ProbeTerminal, 'connectivity' | 'protocolVerification'> &
+      Partial<Pick<ProbeTerminal, 'connectivity' | 'protocolVerification'>>,
+  ): ProbeTerminal => {
     terminal(result.outcome);
-    return result;
+    return {
+      ...assessmentForTerminal(result.outcome, requestedRelay(profile, host)),
+      ...result,
+    };
   };
   const transmit = (type: 'offer' | 'answer' | 'candidate' | 'bye', payload: string) =>
     api.sendSignal(credentials, attempt, probeId, pairId, peerId, { type, payload }, signal);
@@ -633,17 +762,28 @@ export async function runPairedProbe(args: {
     const verified = await handshake.verify();
     if (pollFailure || signal?.aborted || cancelled())
       throw pollFailure ?? new DOMException('attempt cancelled', 'AbortError');
-    const selected = await selectedPair(pc, diagnostics);
+    const selection = await selectedPair(pc, diagnostics, requestedRelay(profile, host));
+    const selected = selection.pair;
     if (pollFailure || signal?.aborted || cancelled())
       throw pollFailure ?? new DOMException('attempt cancelled', 'AbortError');
-    const policy = candidatePolicy(profile, selected, host);
-    const localPass = verified && !policy;
-    const peerVerdict = await handshake.confirm(localPass);
+    const relayInvolved = profile.a.startsWith('turn-') || profile.b.startsWith('turn-');
+    const policy = relayInvolved
+      ? relayConnectivityPolicy(
+          profile,
+          selected,
+          host,
+          localRequestedCandidateDiscovered,
+          (pc.getConfiguration?.().iceTransportPolicy ?? rtcConfiguration.iceTransportPolicy) ===
+            'relay',
+        )
+      : candidatePolicy(profile, selected, host);
+    const connectivityPass = verified && !policy;
+    const peerVerdict = await handshake.confirm(connectivityPass, relayInvolved);
     if (pollFailure || signal?.aborted || cancelled())
       throw pollFailure ?? new DOMException('attempt cancelled', 'AbortError');
     if (!verified)
       return finish({
-        outcome: 'inconclusive',
+        outcome: relayInvolved ? 'timeout' : 'inconclusive',
         detail: 'data channel opened but bidirectional application ping timed out',
         elapsedMs: performance.now() - start,
         ...(selected ? { selected: describePair(selected) } : {}),
@@ -651,7 +791,7 @@ export async function runPairedProbe(args: {
       });
     if (policy)
       return finish({
-        outcome: 'inconclusive',
+        outcome: relayInvolved ? 'failure' : 'inconclusive',
         detail: policy,
         elapsedMs: performance.now() - start,
         ...(selected ? { selected: describePair(selected) } : {}),
@@ -659,7 +799,7 @@ export async function runPairedProbe(args: {
       });
     if (peerVerdict !== 'pass')
       return finish({
-        outcome: 'inconclusive',
+        outcome: relayInvolved ? 'failure' : 'inconclusive',
         detail:
           peerVerdict === 'timeout'
             ? 'peer path-verdict confirmation timed out'
@@ -668,9 +808,19 @@ export async function runPairedProbe(args: {
         ...(selected ? { selected: describePair(selected) } : {}),
         close,
       });
+    const protocolVerification = localProtocolVerification(profile, selected, host);
+    if (requestedRelay(profile, host))
+      diagnostics.localRelayProtocolEvidence(selected?.localRelayProtocol ?? 'unavailable');
     return finish({
       outcome: 'pass',
-      detail: 'selected pair and bidirectional application ping verified',
+      connectivity: 'pass',
+      protocolVerification,
+      detail:
+        relayInvolved && protocolVerification === 'unavailable'
+          ? 'relay connectivity and bidirectional application ping verified; local access-protocol evidence unavailable'
+          : relayInvolved && protocolVerification === 'mismatch'
+            ? 'relay connectivity and bidirectional application ping verified; local access-protocol did not match requested endpoint'
+            : 'selected pair and bidirectional application ping verified',
       elapsedMs: performance.now() - start,
       ...(selected ? { selected: describePair(selected) } : {}),
       channel: active,

@@ -198,4 +198,16 @@ describe('paired RTC telemetry', () => {
     expect(text).toContain('local=[2001:db8::1]:1');
     expect(text).toContain('remote=192.0.2.1:2');
   });
+
+  it('distinguishes absent pair linkage from absent local relay access protocol', () => {
+    const events: PairedProbeDiagnostic[] = [];
+    const diagnostics = new PairedRtcDiagnostics('B', 'profile_turn', (event) =>
+      events.push(event),
+    );
+    diagnostics.selectedPairEvidence('missing-linkage');
+    diagnostics.localRelayProtocolEvidence('unavailable');
+    const text = events.map((event) => event.message).join('\n');
+    expect(text).toContain('selected-pair linkage unavailable');
+    expect(text).toContain('local relay access-protocol evidence unavailable');
+  });
 });

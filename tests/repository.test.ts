@@ -4,9 +4,12 @@ import { Repository } from '../src/server/repository.js';
 import { sqliteD1 } from './sqlite-d1.js';
 const schema = (
   await Promise.all(
-    ['0001_initial.sql', '0002_integrity_and_quotas.sql', '0003_probe_results.sql'].map((name) =>
-      readFile(new URL(`../src/server/migrations/${name}`, import.meta.url), 'utf8'),
-    ),
+    [
+      '0001_initial.sql',
+      '0002_integrity_and_quotas.sql',
+      '0003_probe_results.sql',
+      '0004_probe_assessments.sql',
+    ].map((name) => readFile(new URL(`../src/server/migrations/${name}`, import.meta.url), 'utf8')),
   )
 ).join('\n');
 async function fixture(now = 1_000) {
@@ -193,5 +196,72 @@ describe('D1 repository (SQLite-compatible sql.js test adapter)', () => {
       detail: 'host verified',
       elapsed_ms: 10,
     });
+  });
+
+  it('separates shared relay connectivity from incomplete local protocol evidence', async () => {
+    const repo = await fixture();
+    await repo.createRoom('ABC234', 'pt_hostaaaaaaaa', 'host-hash');
+    await repo.claimGuest('ABC234', 'pt_guestaabbcc', 'guest-hash');
+    const issued = await repo.issueAttempt('ABC234', '[]', null);
+    const attempt = await repo.attempt(issued.id);
+    const host = await repo.participant('pt_hostaaaaaaaa', 'host-hash');
+    const guest = await repo.participant('pt_guestaabbcc', 'guest-hash');
+    const requirements = { hostUsesTurn: true, guestUsesTurn: true };
+    await repo.recordProbeResult(attempt!, host!, 'pair-turn-udp-0', {
+      outcome: 'pass',
+      detail: 'relay round trip',
+      elapsedMs: 10,
+      assessment: { connectivity: 'pass', protocolVerification: 'verified' },
+    });
+    await repo.recordProbeResult(attempt!, guest!, 'pair-turn-udp-0', {
+      outcome: 'pass',
+      detail: 'relay round trip; local stats unavailable',
+      elapsedMs: 11,
+      assessment: { connectivity: 'pass', protocolVerification: 'unavailable' },
+    });
+    expect(await repo.probeResultStatus(attempt!, 'pair-turn-udp-0', requirements)).toMatchObject({
+      complete: true,
+      outcome: 'pass',
+      connectivity: 'pass',
+      protocolVerification: 'unavailable',
+    });
+    const report = await repo.attemptReport(attempt!.id);
+    expect(report?.probeResults.find((result) => result.participantId === host!.id)).toMatchObject({
+      pairId: 'pair-turn-udp-0',
+      connectivity: 'pass',
+      protocolVerification: 'verified',
+    });
+    expect(report?.probeResults.find((result) => result.participantId === guest!.id)).toMatchObject(
+      {
+        connectivity: 'pass',
+        protocolVerification: 'unavailable',
+      },
+    );
+  });
+
+  it('derives legacy assessment defaults without claiming protocol verification', async () => {
+    const repo = await fixture();
+    await repo.createRoom('ABC234', 'pt_hostaaaaaaaa', 'host-hash');
+    await repo.claimGuest('ABC234', 'pt_guestaabbcc', 'guest-hash');
+    const issued = await repo.issueAttempt('ABC234', '[]', null);
+    const attempt = await repo.attempt(issued.id);
+    const host = await repo.participant('pt_hostaaaaaaaa', 'host-hash');
+    const guest = await repo.participant('pt_guestaabbcc', 'guest-hash');
+    await repo.recordProbeResult(attempt!, host!, 'pair-turn-tcp-0', {
+      outcome: 'pass',
+      detail: 'legacy pass',
+      elapsedMs: 1,
+    });
+    await repo.recordProbeResult(attempt!, guest!, 'pair-turn-tcp-0', {
+      outcome: 'pass',
+      detail: 'legacy pass',
+      elapsedMs: 1,
+    });
+    expect(
+      await repo.probeResultStatus(attempt!, 'pair-turn-tcp-0', {
+        hostUsesTurn: true,
+        guestUsesTurn: true,
+      }),
+    ).toMatchObject({ connectivity: 'pass', protocolVerification: 'not-tested' });
   });
 });

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import { CompactReport } from './CompactReport.js';
+import { connectivityLabel, protocolVerificationLabel } from '../probe-presentation.js';
 import type { DiagnosticGroup, DiagnosticsCallbacks, DiagnosticsViewModel } from './types.js';
 
 export interface DiagnosticsDrawerProps {
@@ -76,6 +77,12 @@ function DrawerGroup({ group }: { group: DiagnosticGroup }) {
                     </span>
                   </div>
                   <p>{row.evidence}</p>
+                  {row.connectivity && (
+                    <p>{connectivityLabel(row.connectivity, row.id.startsWith('turn-'))}</p>
+                  )}
+                  {row.protocolVerification && row.protocolVerification !== 'not-applicable' && (
+                    <p>{protocolVerificationLabel(row.protocolVerification)}</p>
+                  )}
                   {row.id === 'stun-assisted' && (
                     <p className="capability-help">
                       Tests mapped-address connectivity without signaling local host candidates.
@@ -111,7 +118,21 @@ function DrawerGroup({ group }: { group: DiagnosticGroup }) {
                                 <td>
                                   {pair.queued} / {pair.active}
                                 </td>
-                                <td>{pair.evidence}</td>
+                                <td>
+                                  {pair.evidence}
+                                  {pair.connectivity && (
+                                    <p>
+                                      {connectivityLabel(
+                                        pair.connectivity,
+                                        row.id.startsWith('turn-'),
+                                      )}
+                                    </p>
+                                  )}
+                                  {pair.protocolVerification &&
+                                    pair.protocolVerification !== 'not-applicable' && (
+                                      <p>{protocolVerificationLabel(pair.protocolVerification)}</p>
+                                    )}
+                                </td>
                               </tr>
                             ))}
                           </tbody>

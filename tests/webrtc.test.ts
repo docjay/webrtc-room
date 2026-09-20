@@ -5,9 +5,13 @@ import {
   candidateMatchesProfile,
   candidatePolicy,
   classifyProbeFailure,
+  extractSelectedPair,
+  localProtocolVerification,
   nonOverlapping,
+  relayConnectivityPolicy,
   requestedServers,
   runPairedProbe,
+  selectedPair,
   type PairEvidence,
 } from '../src/client/webrtc.js';
 
@@ -207,6 +211,34 @@ describe('isolated matrix ICE configuration', () => {
     expect(peer.close).toHaveBeenCalledOnce();
   });
 
+  it('populates assessment fields when RTC setup fails before a probe starts', async () => {
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      class {
+        constructor() {
+          throw new DOMException('unsupported', 'NotSupportedError');
+        }
+      },
+    );
+    const result = await runPairedProbe({
+      api: new ApiClient(),
+      credentials,
+      attempt,
+      profile: turnProfile('turn-tcp-0', 'direct-udp'),
+      pairId: 'pair',
+      probeId: 'probe',
+      peerId: 'peer',
+      host: true,
+      config: iceConfigSchema.parse({ iceServers: [] }),
+      cancelled: () => false,
+    });
+    expect(result).toMatchObject({
+      outcome: 'failure',
+      connectivity: 'failure',
+      protocolVerification: 'not-tested',
+    });
+  });
+
   it('closes promptly on a signaling failure and returns its captured stage', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('window', globalThis);
@@ -339,27 +371,73 @@ describe('isolated matrix ICE configuration', () => {
     },
   );
 
-  it('rejects missing, mismatched, and TCP-for-TLS local relay protocol evidence', () => {
+  it('separates usable relay connectivity from missing or mismatched local access protocol', () => {
     const profile = turnProfile('turn-tls-0', 'turn-tls-1');
-    expect(candidatePolicy(profile, pair({ localRelayProtocol: 'unavailable' }), true)).toBe(
-      'selected pair relay protocol evidence unavailable',
+    expect(
+      candidatePolicy(profile, pair({ localRelayProtocol: 'unavailable' }), true),
+    ).toBeUndefined();
+    expect(
+      localProtocolVerification(profile, pair({ localRelayProtocol: 'unavailable' }), true),
+    ).toBe('unavailable');
+    expect(localProtocolVerification(profile, pair({ localRelayProtocol: 'udp' }), true)).toBe(
+      'mismatch',
     );
-    expect(candidatePolicy(profile, pair({ localRelayProtocol: 'udp' }), true)).toBe(
-      'selected pair relay protocol did not match requested endpoint',
+    expect(localProtocolVerification(profile, pair({ localRelayProtocol: 'tcp' }), true)).toBe(
+      'mismatch',
     );
-    expect(candidatePolicy(profile, pair({ localRelayProtocol: 'tcp' }), true)).toBe(
-      'selected pair relay protocol did not match requested endpoint',
+    expect(localProtocolVerification(profile, pair({ localRelayProtocol: 'tls' }), true)).toBe(
+      'verified',
+    );
+    expect(localProtocolVerification(profile, pair({ localRelayProtocol: 'tls' }), false)).toBe(
+      'verified',
+    );
+    expect(localProtocolVerification(turnProfile('direct-udp', 'turn-tls-1'), pair(), true)).toBe(
+      'not-applicable',
     );
   });
 
-  it('requires relay candidate types on both sides despite unavailable remote relay protocol', () => {
+  it('requires only this side relay evidence; its peer validates its own role', () => {
     const profile = turnProfile('turn-udp-0', 'turn-udp-1');
-    expect(candidatePolicy(profile, pair({ remoteType: 'host' }), true)).toBe(
+    expect(
+      relayConnectivityPolicy(profile, pair({ remoteType: 'host' }), true, true, true),
+    ).toBeUndefined();
+    expect(relayConnectivityPolicy(profile, pair({ localType: 'host' }), true, true, true)).toBe(
       'selected pair did not prove requested relay on this side',
     );
-    expect(candidatePolicy(profile, pair({ localType: 'host' }), true)).toBe(
+  });
+
+  it('accepts a working relay-only path with missing selected linkage when local relay gathering corroborates it', () => {
+    const profile = turnProfile('turn-tcp-0', 'turn-tcp-1');
+    expect(relayConnectivityPolicy(profile, undefined, true, true, true)).toBeUndefined();
+    expect(relayConnectivityPolicy(profile, undefined, true, false, true)).toBe(
+      'no local TURN relay candidate was observed before application verification',
+    );
+    expect(relayConnectivityPolicy(profile, pair({ localType: 'host' }), true, true, true)).toBe(
       'selected pair did not prove requested relay on this side',
     );
+    expect(
+      relayConnectivityPolicy(profile, pair({ localType: 'unavailable' }), true, true, true),
+    ).toBeUndefined();
+    expect(relayConnectivityPolicy(profile, pair(), true, true, false)).toBe(
+      'relay-only ICE policy was not configured on this side',
+    );
+  });
+
+  it('keeps mixed nonrelay roles strict rather than accepting the opposite TURN path', () => {
+    const mixed = turnProfile('direct-udp', 'turn-tcp-0');
+    expect(relayConnectivityPolicy(mixed, undefined, true, false, false)).toBe(
+      'selected pair stats unavailable',
+    );
+    expect(relayConnectivityPolicy(mixed, pair({ localType: 'srflx' }), true, false, false)).toBe(
+      'selected pair did not prove requested direct path on this side',
+    );
+    expect(
+      relayConnectivityPolicy(mixed, pair({ localType: 'host' }), true, false, false),
+    ).toBeUndefined();
+    const stunMixed = turnProfile('stun-udp-0', 'turn-tcp-0');
+    expect(
+      relayConnectivityPolicy(stunMixed, pair({ localType: 'host' }), true, false, false),
+    ).toContain('local host candidate');
   });
 
   it.each([
@@ -379,4 +457,96 @@ describe('isolated matrix ICE configuration', () => {
       expect(candidatePolicy(profile, evidence, host)).toBeUndefined();
     },
   );
+
+  it('prefers transport linkage, then selected flag, then one nominated+succeeded pair', () => {
+    const candidate = (type: string, relayProtocol = 'unavailable') => ({
+      type: 'local-candidate',
+      candidateType: type,
+      protocol: 'udp',
+      relayProtocol,
+    });
+    const pairStat = (id: string, selected?: boolean) => ({
+      id,
+      type: 'candidate-pair',
+      state: 'succeeded',
+      nominated: true,
+      ...(selected === undefined ? {} : { selected }),
+      localCandidateId: `local-${id}`,
+      remoteCandidateId: `remote-${id}`,
+    });
+    const transport = new Map<string, unknown>([
+      ['transport', { type: 'transport', selectedCandidatePairId: 'second' }],
+      ['first', pairStat('first', true)],
+      ['second', pairStat('second')],
+      ['local-first', candidate('host')],
+      ['remote-first', candidate('host')],
+      ['local-second', candidate('relay', 'tls')],
+      ['remote-second', candidate('relay')],
+    ]) as RTCStatsReport;
+    expect(extractSelectedPair(transport)).toMatchObject({
+      source: 'transport-link',
+      pair: { localType: 'relay' },
+    });
+
+    const flagged = new Map<string, unknown>([
+      ['only', pairStat('only', true)],
+      ['local-only', candidate('relay', 'tcp')],
+      ['remote-only', candidate('host')],
+    ]) as RTCStatsReport;
+    expect(extractSelectedPair(flagged).source).toBe('selected-flag');
+    const dangling = new Map<string, unknown>([
+      ['transport', { type: 'transport', selectedCandidatePairId: 'absent' }],
+      ['old', pairStat('old', true)],
+    ]) as RTCStatsReport;
+    expect(extractSelectedPair(dangling).source).toBe('missing-linkage');
+    const conflictingFlags = new Map<string, unknown>([
+      ['old', { ...pairStat('old', true), nominated: false }],
+      ['current', pairStat('current', true)],
+    ]) as RTCStatsReport;
+    expect(extractSelectedPair(conflictingFlags).source).toBe('missing-linkage');
+
+    const fallback = new Map<string, unknown>([
+      ['only', pairStat('only')],
+      ['local-only', candidate('relay', 'tcp')],
+      ['remote-only', candidate('host')],
+    ]) as RTCStatsReport;
+    expect(extractSelectedPair(fallback).source).toBe('nominated-fallback');
+    (fallback as unknown as Map<string, unknown>).set('other', pairStat('other'));
+    expect(extractSelectedPair(fallback)).toEqual({ source: 'missing-linkage' });
+
+    (transport as unknown as Map<string, unknown>).set('second-transport', {
+      type: 'transport',
+      selectedCandidatePairId: 'first',
+    });
+    expect(extractSelectedPair(transport).source).toBe('missing-linkage');
+  });
+
+  it('briefly resamples incomplete selected relay stats for late local details', async () => {
+    vi.useFakeTimers();
+    const partial = new Map<string, unknown>([
+      ['pair', { id: 'pair', type: 'candidate-pair', selected: true, localCandidateId: 'local' }],
+      ['local', { type: 'local-candidate', candidateType: 'relay', protocol: 'udp' }],
+    ]) as RTCStatsReport;
+    const complete = new Map<string, unknown>([
+      ['pair', { id: 'pair', type: 'candidate-pair', selected: true, localCandidateId: 'local' }],
+      [
+        'local',
+        {
+          type: 'local-candidate',
+          candidateType: 'relay',
+          protocol: 'udp',
+          relayProtocol: 'tcp',
+        },
+      ],
+    ]) as RTCStatsReport;
+    const getStats = vi.fn().mockResolvedValueOnce(partial).mockResolvedValueOnce(complete);
+    const pc = { getStats } as unknown as RTCPeerConnection;
+    const result = selectedPair(pc, undefined, true);
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(result).resolves.toMatchObject({
+      source: 'selected-flag',
+      pair: { localRelayProtocol: 'tcp' },
+    });
+    expect(getStats).toHaveBeenCalledTimes(2);
+  });
 });

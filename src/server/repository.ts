@@ -1,3 +1,11 @@
+import {
+  aggregateAssessment,
+  protocolDefault,
+  type PairProtocolRequirements,
+  type ProbeAssessment,
+  type ProbeOutcome,
+} from '../shared/probe-assessment.js';
+import { redact } from '../shared/domain.js';
 import type { D1Database } from './db/types.js';
 export type Room = {
   code: string;
@@ -6,7 +14,7 @@ export type Room = {
   expires_at: number;
   generation: number;
 };
-export type Participant = { id: string; room_code: string; slot: number };
+export type Participant = { id: string; room_code: string; slot: 1 | 2 };
 export type Attempt = {
   id: string;
   room_code: string;
@@ -15,6 +23,10 @@ export type Attempt = {
   manifest_json: string;
   created_at: number;
 };
+function redactedText(value: string): string {
+  const sanitized = redact(value);
+  return typeof sanitized === 'string' ? sanitized : '[REDACTED]';
+}
 export class Repository {
   public constructor(
     private readonly db: D1Database,
@@ -315,11 +327,18 @@ export class Repository {
     attempt: Attempt,
     participant: Participant,
     pairId: string,
-    result: { outcome: string; detail: string; selected?: string; elapsedMs: number },
+    result: {
+      outcome: ProbeOutcome;
+      detail: string;
+      selected?: string;
+      elapsedMs: number;
+      assessment?: Partial<ProbeAssessment>;
+    },
   ): Promise<void> {
+    const assessment = result.assessment ?? {};
     await this.db
       .prepare(
-        'INSERT OR IGNORE INTO probe_results(attempt_id,pair_id,participant_id,outcome,detail,selected,elapsed_ms,created_at) VALUES(?,?,?,?,?,?,?,?)',
+        'INSERT OR IGNORE INTO probe_results(attempt_id,pair_id,participant_id,outcome,detail,selected,elapsed_ms,connectivity,protocol_verification,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
       )
       .bind(
         attempt.id,
@@ -329,6 +348,8 @@ export class Repository {
         result.detail,
         result.selected ?? null,
         Math.max(0, Math.min(30_000, Math.round(result.elapsedMs))),
+        assessment.connectivity ?? null,
+        assessment.protocolVerification ?? null,
         this.now(),
       )
       .run();
@@ -336,34 +357,81 @@ export class Repository {
   async probeResultStatus(
     attempt: Attempt,
     pairId: string,
+    requirements: PairProtocolRequirements = { hostUsesTurn: false, guestUsesTurn: false },
   ): Promise<{
     complete: boolean;
-    outcome?: string;
+    outcome?: ProbeOutcome;
+    connectivity?: ProbeAssessment['connectivity'];
+    protocolVerification?: ProbeAssessment['protocolVerification'];
     results: Array<{
       participant_id: string;
-      outcome: string;
+      outcome: ProbeOutcome;
       detail: string;
       selected: string | null;
       elapsed_ms: number;
+      connectivity: ProbeAssessment['connectivity'];
+      protocolVerification: ProbeAssessment['protocolVerification'];
     }>;
   }> {
-    const results = (
+    const rows = (
       await this.db
         .prepare(
-          'SELECT participant_id,outcome,detail,selected,elapsed_ms FROM probe_results WHERE attempt_id=? AND pair_id=? ORDER BY participant_id',
+          'SELECT p.id AS participant_id,p.slot,r.outcome,r.detail,r.selected,r.elapsed_ms,r.connectivity,r.protocol_verification FROM probe_results r JOIN participants p ON p.id=r.participant_id WHERE r.attempt_id=? AND r.pair_id=? ORDER BY p.id',
         )
         .bind(attempt.id, pairId)
         .all<{
           participant_id: string;
-          outcome: string;
+          slot: 1 | 2;
+          outcome: ProbeOutcome;
           detail: string;
           selected: string | null;
           elapsed_ms: number;
+          connectivity: ProbeAssessment['connectivity'] | null;
+          protocol_verification: ProbeAssessment['protocolVerification'] | null;
         }>()
     ).results;
-    if (results.length !== 2) return { complete: false, results };
-    const failed = results.find((result) => result.outcome !== 'pass');
-    return { complete: true, outcome: failed?.outcome ?? 'pass', results };
+    const results = rows.map((row) => ({
+      participant_id: row.participant_id,
+      outcome: row.outcome,
+      detail: row.detail,
+      selected: row.selected,
+      elapsed_ms: row.elapsed_ms,
+      connectivity:
+        row.connectivity ??
+        (row.outcome === 'pass'
+          ? 'pass'
+          : row.outcome === 'failure'
+            ? 'failure'
+            : row.outcome === 'timeout'
+              ? 'timeout'
+              : 'unconfirmed'),
+      protocolVerification: row.protocol_verification ?? protocolDefault(requirements, row.slot),
+      participantSlot: row.slot,
+    }));
+    const publicResults = results.map((result) => ({
+      participant_id: result.participant_id,
+      outcome: result.outcome,
+      detail: result.detail,
+      selected: result.selected,
+      elapsed_ms: result.elapsed_ms,
+      connectivity: result.connectivity,
+      protocolVerification: result.protocolVerification,
+    }));
+    if (results.length !== 2) return { complete: false, results: publicResults };
+    const assessment = aggregateAssessment(results, requirements);
+    return {
+      complete: true,
+      outcome:
+        assessment.connectivity === 'pass'
+          ? 'pass'
+          : assessment.connectivity === 'failure'
+            ? 'failure'
+            : assessment.connectivity === 'timeout'
+              ? 'timeout'
+              : 'inconclusive',
+      ...assessment,
+      results: publicResults,
+    };
   }
   async registerRun(run: string, participant: string, attempt: string | null): Promise<void> {
     const now = this.now();
@@ -425,6 +493,17 @@ export class Repository {
     id: string;
     generation: number;
     previousAttemptId: string | null;
+    probeResults: Array<{
+      pairId: string;
+      participantId: string;
+      outcome: ProbeOutcome;
+      detail: string;
+      selected: string | null;
+      elapsedMs: number;
+      connectivity: ProbeAssessment['connectivity'] | null;
+      protocolVerification: ProbeAssessment['protocolVerification'] | null;
+      createdAt: number;
+    }>;
     runs: Array<{
       id: string;
       events: Array<{ sequence: number; body: string; received_at: number }>;
@@ -438,10 +517,39 @@ export class Repository {
         .bind(id)
         .all<{ id: string }>()
     ).results;
+    const probeResults = (
+      await this.db
+        .prepare(
+          'SELECT pair_id,participant_id,outcome,detail,selected,elapsed_ms,connectivity,protocol_verification,created_at FROM probe_results WHERE attempt_id=? ORDER BY pair_id,participant_id',
+        )
+        .bind(id)
+        .all<{
+          pair_id: string;
+          participant_id: string;
+          outcome: ProbeOutcome;
+          detail: string;
+          selected: string | null;
+          elapsed_ms: number;
+          connectivity: ProbeAssessment['connectivity'] | null;
+          protocol_verification: ProbeAssessment['protocolVerification'] | null;
+          created_at: number;
+        }>()
+    ).results.map((result) => ({
+      pairId: result.pair_id,
+      participantId: result.participant_id,
+      outcome: result.outcome,
+      detail: redactedText(result.detail),
+      selected: result.selected === null ? null : redactedText(result.selected),
+      elapsedMs: result.elapsed_ms,
+      connectivity: result.connectivity,
+      protocolVerification: result.protocol_verification,
+      createdAt: result.created_at,
+    }));
     return {
       id: attempt.id,
       generation: attempt.generation,
       previousAttemptId: attempt.previous_id,
+      probeResults,
       runs: (await Promise.all(runs.map((run) => this.runDetail(run.id)))).filter(
         (run): run is NonNullable<typeof run> => Boolean(run),
       ),
