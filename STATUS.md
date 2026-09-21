@@ -1,5 +1,28 @@
 # Status - room-first UX redesign implemented
 
+## Current milestone - readable, remembered TURN code, 2026-09-20
+
+- The user requested a readable TURN access-code field and browser persistence.
+  The field now uses text input and restores its origin-scoped localStorage
+  preference on startup. Edits save the code; clearing it removes the key.
+  Leaving or losing room access retains the preference, while still discarding
+  applied relay configuration and temporary credentials.
+- The UI explains plaintext storage. Denied reads/writes/removal show safe,
+  actionable errors while keeping manual entry usable. Storage does not trigger
+  a credential exchange or silently apply changes to an active room. Only the
+  shared code is persisted; temporary credentials, participant tokens and
+  diagnostic exports remain outside this preference.
+- Five focused storage unit cases and four Chromium browser cases passed on
+  macOS: reload/new-tab restoration, clearing, blocked storage, authorized
+  exchange of a restored code, report/credential exclusions, late-response
+  protection after leaving, and mobile accessibility/layout. Targeted lint,
+  formatting, TypeScript and production builds passed. No live TURN/network
+  claim follows from these mocked credential-exchange cases.
+- No subagent delegation or new model escalation for this narrow change; the
+  existing user-selected root completed it directly. Ready for Codex to deploy
+  the updated client; no new migration or hosted configuration is required.
+  The prior relay-assessment release still requires migrations through 0004.
+
 ## Current milestone - relay connectivity versus protocol evidence, 2026-09-20
 
 - User-approved scope change: keep a working, bilaterally confirmed relay-only

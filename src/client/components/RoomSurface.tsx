@@ -113,19 +113,30 @@ export function RoomSurface({ model, callbacks }: RoomSurfaceProps) {
           <label className="field" htmlFor="relay-access-code">
             <span id="relay-access-title">TURN relay access code</span>
             <input
-              aria-describedby="relay-access-status"
+              aria-describedby="relay-access-status relay-access-storage"
+              autoCapitalize="none"
               autoComplete="off"
               id="relay-access-code"
               onChange={(event) => callbacks.onRelayAccessCodeChange(event.target.value)}
               placeholder="Optional shared code"
               spellCheck={false}
-              type="password"
+              type="text"
               value={model.relayAccess.code}
             />
           </label>
           <small id="relay-access-status" role="status" aria-live="polite">
             {model.relayAccess.status}
           </small>
+          <small id="relay-access-storage">
+            {model.relayAccess.storageError
+              ? 'The code is visible, but browser storage could not be updated or read.'
+              : 'Saved as plain text in this browser for this site. Clear the field to forget it.'}
+          </small>
+          {model.relayAccess.storageError && (
+            <p className="field-error" role="alert">
+              {model.relayAccess.storageError}
+            </p>
+          )}
           {model.relayAccess.canApply && (
             <button
               className="button button--secondary"

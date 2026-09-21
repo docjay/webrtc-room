@@ -33,7 +33,7 @@ test('automatic checks keep explicit intent pending and the mobile drawer access
   await expect(page.getByRole('heading', { name: 'Join room ABC234' })).toBeVisible();
   const relayCode = page.getByLabel('TURN relay access code');
   await expect(relayCode).toBeVisible();
-  await expect(relayCode).toHaveAttribute('type', 'password');
+  await expect(relayCode).toHaveAttribute('type', 'text');
   await expect(relayCode).toHaveAttribute('autocomplete', 'off');
   await expect(relayCode).not.toHaveAttribute('minlength');
   await expect(page.getByText(/Xirsys/i)).toHaveCount(0);
@@ -113,7 +113,7 @@ test('expired room access returns to actionable room controls', async ({ page })
   await expect(page.getByRole('button', { name: 'Join room' })).toBeVisible();
 });
 
-test('managed TURN exchanges an in-memory access code only after room authorization', async ({
+test('managed TURN exchanges a remembered access code only after room authorization', async ({
   page,
   context,
 }) => {
@@ -152,6 +152,10 @@ test('managed TURN exchanges an in-memory access code only after room authorizat
 
   await page.goto('/');
   await page.getByLabel('TURN relay access code').fill(accessCode);
+  expect(credentialRequest).toBeUndefined();
+  await page.reload();
+  await expect(page.getByLabel('TURN relay access code')).toHaveValue(accessCode);
+  expect(credentialRequest).toBeUndefined();
   await page.getByRole('button', { name: 'Create a room' }).click();
 
   await expect.poll(() => credentialRequest).toBeTruthy();
@@ -161,9 +165,17 @@ test('managed TURN exchanges an in-memory access code only after room authorizat
   await openDiagnostics(page);
   await page.getByRole('button', { name: 'Copy report' }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).not.toContain(accessCode);
-  expect(
-    await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage })),
-  ).not.toContain(accessCode);
+  expect(await page.evaluate(() => localStorage.getItem('webrtc-room.turn-access-code'))).toBe(
+    accessCode,
+  );
+  const browserStorage = await page.evaluate(() =>
+    JSON.stringify({ ...localStorage, ...sessionStorage }),
+  );
+  expect(browserStorage).not.toContain('temporary-user');
+  expect(browserStorage).not.toContain('temporary-credential');
+  expect(await page.evaluate(() => JSON.stringify({ ...sessionStorage }))).not.toContain(
+    accessCode,
+  );
   await page.getByRole('button', { name: 'Close diagnostics' }).click();
 
   delayNextCredentialResponse = true;
@@ -175,7 +187,10 @@ test('managed TURN exchanges an in-memory access code only after room authorizat
   releaseCredentialResponse?.();
 
   await expect(page.getByRole('heading', { name: /Join room/ })).toBeVisible();
-  await expect(page.getByLabel('TURN relay access code')).toHaveValue('');
+  await expect(page.getByLabel('TURN relay access code')).toHaveValue('replacement-relay-code');
+  expect(await page.evaluate(() => localStorage.getItem('webrtc-room.turn-access-code'))).toBe(
+    'replacement-relay-code',
+  );
   await expect(page.getByText('TURN relay is enabled for this tab.')).toHaveCount(0);
 });
 

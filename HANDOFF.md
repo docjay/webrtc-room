@@ -1,5 +1,46 @@
 # Copilot build handoff
 
+## Readable, remembered TURN access code - 2026-09-20
+
+Branch: `work/ux-redesign-plan`; worktree:
+`/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`.
+The follow-up handoff commit records the implementation source pin.
+
+User-authorized behavior: the TURN shared code is readable and saved as plain
+text in this site's localStorage (`webrtc-room.turn-access-code`). Startup
+restores it; edits replace it; clearing removes it. Leaving/expired room cleanup
+keeps the preference but still clears temporary credentials and applied relay
+configuration. Codes are not live-synchronized between already-open tabs.
+
+`src/client/relay-code-storage.ts` isolates storage reads/writes/removal and
+returns explicit safe errors. `main.tsx` restores draft state once, saves only
+user edits and retains room authorization/request-generation boundaries.
+`RoomSurface.tsx` displays readable input, plaintext-storage guidance and
+storage failures. A blocked storage operation leaves manual tab-local entry
+usable; failed removal explicitly directs the user to clear site data.
+Only this shared-code preference is persistent: temporary TURN credentials,
+participant tokens and provider secrets are not saved. Codes remain excluded
+from diagnostic reports/exports and URLs. Restoring a draft neither contacts
+the credential endpoint before room authorization nor replaces an active
+configuration without the existing Apply flow.
+
+Evidence on macOS/Chromium, 2026-09-20:
+`npm test -- tests/relay-code-storage.test.ts` passed five cases.
+`npm run test:browser -- tests/browser/relay-code-storage.spec.ts tests/browser/rtc.spec.ts --grep 'remembers a readable|keeps the TURN code editable|managed TURN exchanges|automatic checks keep explicit intent'`
+passed four cases covering reload/new-tab restoration, clearing, denied storage,
+authorized restored-code exchange, report/temporary-credential exclusions,
+retention after leaving and stale-response protection, plus mobile layout.
+Changed-file Prettier/ESLint, `npm run typecheck` and `npm run build` passed.
+Test sources are the evidence artifacts; credential replies are mocked, not
+live TURN traversal. No deployment, new migration or hosted secret changes.
+The prior release's migrations through 0004 remain required.
+
+No delegation or new escalation for this narrow preference change; the existing
+user-selected root implemented and integrated it directly. Codex should deploy
+the latest source with the existing runtime settings and refresh the browser.
+Previously entered memory-only codes cannot be recovered: enter the code once
+after this update to save it.
+
 ## Independent relay connectivity and protocol evidence - 2026-09-20
 
 Implementation source commit: `e1cb8fdca3346dc2b0c10960917d80707639926b`.

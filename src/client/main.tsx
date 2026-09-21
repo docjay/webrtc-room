@@ -15,6 +15,7 @@ import { ApiClient, type Credentials, type IssuedAttempt } from './api.js';
 import type { ProbeAssessment } from '../shared/probe-assessment.js';
 import { connectivityLabel, protocolVerificationLabel } from './probe-presentation.js';
 import { alignTemporaryTurnCredentials, managedTurnFailure } from './managed-turn.js';
+import { readSavedTurnCode, saveTurnCode } from './relay-code-storage.js';
 import { ReportBuffer, copyReport, downloadReport } from './report.js';
 import { DeviceCheckController, type DeviceCheckSnapshot } from './device-checks.js';
 import { DiagnosticsDrawer } from './components/DiagnosticsDrawer.js';
@@ -203,7 +204,14 @@ function App() {
   const report = useMemo(() => new ReportBuffer(), []);
   const [draftIceText, setDraftIceText] = useState('');
   const [appliedIceText, setAppliedIceText] = useState('');
-  const [turnAccessCode, setTurnAccessCode] = useState('');
+  const [turnCodePreference, setTurnCodePreference] = useState(() => {
+    const saved = readSavedTurnCode();
+    return {
+      code: saved.ok ? saved.value : '',
+      storageError: saved.ok ? '' : saved.error,
+    };
+  });
+  const turnAccessCode = turnCodePreference.code;
   const [appliedTurnAccessCode, setAppliedTurnAccessCode] = useState('');
   const [managedTurnConfig, setManagedTurnConfig] = useState<IceConfig>({ iceServers: [] });
   const [applyingSettings, setApplyingSettings] = useState(false);
@@ -706,7 +714,6 @@ function App() {
         tearDownAttempt(false);
         setCredentials(null);
         setManagedTurnConfig({ iceServers: [] });
-        setTurnAccessCode('');
         setAppliedTurnAccessCode('');
         relayRequestGeneration.current++;
         setApplyingSettings(false);
@@ -1297,7 +1304,6 @@ function App() {
     await (credentials ? api.leave(credentials) : Promise.resolve()).catch(() => undefined);
     setCredentials(null);
     setManagedTurnConfig({ iceServers: [] });
-    setTurnAccessCode('');
     setAppliedTurnAccessCode('');
     setApplyingSettings(false);
     setRelayError('');
@@ -1528,6 +1534,7 @@ function App() {
           ? 'Disable relay'
           : 'Apply relay code',
       ...(relayError ? { error: relayError } : {}),
+      ...(turnCodePreference.storageError ? { storageError: turnCodePreference.storageError } : {}),
     },
     actions: credentials
       ? [
@@ -1750,7 +1757,8 @@ function App() {
         callbacks={{
           onRoomCodeChange: setRoomCode,
           onRelayAccessCodeChange: (value) => {
-            setTurnAccessCode(value);
+            const saved = saveTurnCode(value);
+            setTurnCodePreference({ code: value, storageError: saved.ok ? '' : saved.error });
             setRelayError('');
           },
           onApplyRelayAccessCode: () => void applyTurnAccessCode(),

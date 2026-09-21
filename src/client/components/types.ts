@@ -53,6 +53,7 @@ export interface RoomSurfaceModel {
     canApply: boolean;
     actionLabel: string;
     error?: string;
+    storageError?: string;
   };
   actions: readonly RoomAction[];
 }
