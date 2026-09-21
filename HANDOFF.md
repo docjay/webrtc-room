@@ -2,9 +2,10 @@
 
 ## Readable, remembered TURN access code - 2026-09-20
 
+Implementation source commit: `efef1590f23e771e384a108f3a047af9276fd62f`.
 Branch: `work/ux-redesign-plan`; worktree:
 `/Users/renjay/code/worktrees/webrtc-room/ux-redesign-plan`.
-The follow-up handoff commit records the implementation source pin.
+The subsequent handoff-only commit pins this source for `main`.
 
 User-authorized behavior: the TURN shared code is readable and saved as plain
 text in this site's localStorage (`webrtc-room.turn-access-code`). Startup
